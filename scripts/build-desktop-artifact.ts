@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 as win32Path } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
@@ -475,6 +475,10 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: "com.t3tools.t3code",
     productName,
     artifactName: "T3-Code-${version}-${arch}.${ext}",
+    // All native modules (node-pty, msgpackr-extract, etc.) run inside the
+    // bun server subprocess, not in Electron's own Node.js process, so they
+    // do not need to be recompiled against Electron's Node ABI.
+    npmRebuild: false,
     directories: {
       buildResources: "apps/desktop/resources",
     },
@@ -711,6 +715,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     }
     buildEnv.npm_config_msvs_version = buildEnv.npm_config_msvs_version ?? "2022";
     buildEnv.GYP_MSVS_VERSION = buildEnv.GYP_MSVS_VERSION ?? "2022";
+    // Ensure the bun executable directory is on PATH in Windows format so that
+    // cmd.exe (used for shell: true) can resolve 'bunx'.
+    const bunDir = win32Path.dirname(process.execPath);
+    buildEnv.PATH = `${bunDir};C:\\Windows\\System32;C:\\Windows;${buildEnv.PATH ?? ""}`;
   }
 
   yield* Effect.log(
@@ -723,7 +731,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ...commandOutputOptions(options.verbose),
       // Windows needs shell mode to resolve .cmd shims.
       shell: process.platform === "win32",
-    })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
+    })`bun x electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
   );
 
   const stageDistDir = path.join(stageAppDir, "dist");
