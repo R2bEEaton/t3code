@@ -6,7 +6,9 @@ import {
 } from "@t3tools/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { ClockIcon, DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { useTypingTime } from "../../typingTimeStore";
+import { formatDuration } from "../../session-logic";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -61,6 +63,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
+  const typingMs = useTypingTime(activeThreadId);
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -80,6 +83,22 @@ export const ChatHeader = memo(function ChatHeader({
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
             No Git
           </Badge>
+        )}
+        {typingMs > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 text-[10px] tabular-nums text-muted-foreground"
+                >
+                  <ClockIcon className="size-2.5" />
+                  {formatDuration(typingMs)}
+                </Badge>
+              }
+            />
+            <TooltipPopup side="bottom">Typing time this thread</TooltipPopup>
+          </Tooltip>
         )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">

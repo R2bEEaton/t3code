@@ -150,6 +150,7 @@ import {
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { shouldUseCompactComposerFooter } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { useTypingTimeStore } from "../typingTimeStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
@@ -3547,6 +3548,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       cursorAdjacentToMention: boolean,
       terminalContextIds: string[],
     ) => {
+      if (activeThreadId) {
+        useTypingTimeStore.getState().recordTyping(activeThreadId);
+      }
       if (activePendingProgress?.activeQuestion && activePendingUserInput) {
         onChangeActivePendingUserInputCustomAnswer(
           activePendingProgress.activeQuestion.id,
@@ -3573,6 +3577,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [
       activePendingProgress?.activeQuestion,
       activePendingUserInput,
+      activeThreadId,
       composerTerminalContexts,
       onChangeActivePendingUserInputCustomAnswer,
       setPrompt,
