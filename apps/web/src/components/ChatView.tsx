@@ -155,6 +155,8 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./Compose
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import MessageQueueSidebar from "./MessageQueueSidebar";
+import { useMessageQueueStore, useThreadMessageQueue } from "../messageQueueStore";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
@@ -413,6 +415,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (store) => store.setStickyModelSelection,
   );
   const timestampFormat = settings.timestampFormat;
+  const queuedMessages = useThreadMessageQueue(threadId);
+  const { removeMessage } = useMessageQueueStore();
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
@@ -499,6 +503,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
@@ -1462,6 +1467,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
+  const toggleQueueSidebar = useCallback(() => {
+    setQueueOpen((open) => !open);
+  }, []);
+  const canSendQueuedMessages = !isWorking && !activePendingProgress;
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -3717,6 +3726,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          queueOpen={queueOpen}
+          queueCount={queuedMessages.length}
+          onToggleQueue={toggleQueueSidebar}
         />
       </header>
 
@@ -4314,6 +4326,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
           ) : null}
         </div>
         {/* end chat column */}
+
+        {/* Message queue sidebar */}
+        {queueOpen ? (
+          <MessageQueueSidebar
+            canSendQueuedMessages={canSendQueuedMessages}
+            queuedMessages={queuedMessages}
+            timestampFormat={timestampFormat}
+            onClose={() => setQueueOpen(false)}
+            onRemoveMessage={(messageId) => removeMessage(threadId, messageId)}
+            onSendMessage={(messageId) => {
+              const msg = queuedMessages.find((m) => m.id === messageId);
+              if (!msg || !canSendQueuedMessages) return;
+              removeMessage(threadId, messageId);
+              promptRef.current = msg.text;
+              setPrompt(msg.text);
+              void onSend();
+            }}
+          />
+        ) : null}
 
         {/* Plan sidebar */}
         {planSidebarOpen ? (

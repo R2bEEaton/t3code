@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { type TimestampFormat } from "../appSettings";
+import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { formatTimestamp } from "../timestampFormat";

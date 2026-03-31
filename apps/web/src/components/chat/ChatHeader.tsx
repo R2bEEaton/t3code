@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { ClockIcon, DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { ClockIcon, DiffIcon, ListOrderedIcon, TerminalSquareIcon } from "lucide-react";
 import { useTypingTime } from "../../typingTimeStore";
 import { formatDuration } from "../../session-logic";
 import { Badge } from "../ui/badge";
@@ -38,6 +38,9 @@ interface ChatHeaderProps {
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  queueOpen: boolean;
+  queueCount: number;
+  onToggleQueue: () => void;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -62,6 +65,9 @@ export const ChatHeader = memo(function ChatHeader({
   onDeleteProjectScript,
   onToggleTerminal,
   onToggleDiff,
+  queueOpen,
+  queueCount,
+  onToggleQueue,
 }: ChatHeaderProps) {
   const typingMs = useTypingTime(activeThreadId);
   return (
@@ -167,6 +173,30 @@ export const ChatHeader = memo(function ChatHeader({
               : diffToggleShortcutLabel
                 ? `Toggle diff panel (${diffToggleShortcutLabel})`
                 : "Toggle diff panel"}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
+                pressed={queueOpen}
+                onPressedChange={onToggleQueue}
+                aria-label="Toggle message queue"
+                variant="outline"
+                size="xs"
+              >
+                <ListOrderedIcon className="size-3" />
+                {queueCount > 0 && (
+                  <span className="ml-0.5 text-[10px] tabular-nums">{queueCount}</span>
+                )}
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {queueCount === 0
+              ? "Message queue (empty)"
+              : `Message queue (${queueCount} queued)`}
           </TooltipPopup>
         </Tooltip>
       </div>
