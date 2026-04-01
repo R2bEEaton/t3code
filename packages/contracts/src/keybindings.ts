@@ -33,6 +33,8 @@ const STATIC_KEYBINDING_COMMANDS = [
   "terminal.new",
   "terminal.close",
   "diff.toggle",
+  "chat.queue.enqueue",
+  "chat.queue.sendWhenDone",
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",

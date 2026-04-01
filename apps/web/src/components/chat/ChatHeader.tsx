@@ -194,9 +194,7 @@ export const ChatHeader = memo(function ChatHeader({
             }
           />
           <TooltipPopup side="bottom">
-            {queueCount === 0
-              ? "Message queue (empty)"
-              : `Message queue (${queueCount} queued)`}
+            {queueCount === 0 ? "Message queue (empty)" : `Message queue (${queueCount} queued)`}
           </TooltipPopup>
         </Tooltip>
       </div>

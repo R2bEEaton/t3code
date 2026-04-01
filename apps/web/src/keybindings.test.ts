@@ -53,6 +53,21 @@ function modShortcut(
   };
 }
 
+function shortcut(
+  key: string,
+  overrides: Partial<Omit<KeybindingShortcut, "key">> = {},
+): KeybindingShortcut {
+  return {
+    key,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    modKey: false,
+    ...overrides,
+  };
+}
+
 function whenIdentifier(name: string): KeybindingWhenNode {
   return { type: "identifier", name };
 }
@@ -100,6 +115,11 @@ const DEFAULT_BINDINGS = compile([
     shortcut: modShortcut("d"),
     command: "diff.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  { shortcut: shortcut("enter", { ctrlKey: true }), command: "chat.queue.enqueue" },
+  {
+    shortcut: shortcut("enter", { ctrlKey: true, shiftKey: true }),
+    command: "chat.queue.sendWhenDone",
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
@@ -249,6 +269,14 @@ describe("shortcutLabelForCommand", () => {
   it("returns effective labels for non-terminal commands", () => {
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.queue.enqueue", "Linux"),
+      "Ctrl+Enter",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.queue.sendWhenDone", "Linux"),
+      "Ctrl+Shift+Enter",
+    );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
@@ -469,6 +497,25 @@ describe("resolveShortcutCommand", () => {
         platform: "Linux",
       }),
       "script.setup.run",
+    );
+  });
+
+  it("matches queue commands on enter shortcuts", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "Enter", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+      "chat.queue.enqueue",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "Enter", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+        },
+      ),
+      "chat.queue.sendWhenDone",
     );
   });
 

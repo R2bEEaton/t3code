@@ -41,6 +41,18 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
 
+    const parsedQueue = yield* decode(KeybindingRule, {
+      key: "ctrl+enter",
+      command: "chat.queue.enqueue",
+    });
+    assert.strictEqual(parsedQueue.command, "chat.queue.enqueue");
+
+    const parsedSendWhenDone = yield* decode(KeybindingRule, {
+      key: "ctrl+shift+enter",
+      command: "chat.queue.sendWhenDone",
+    });
+    assert.strictEqual(parsedSendWhenDone.command, "chat.queue.sendWhenDone");
+
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
       command: "chat.newLocal",
