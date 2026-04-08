@@ -2,6 +2,7 @@ import { type ThreadId } from "@t3tools/contracts";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { mergePersistedThreadStateMap, normalizeTimingNumber } from "./timingStore";
 
 export const TYPING_TIME_STORAGE_KEY = "t3code:typing-time:v1";
 
@@ -31,6 +32,7 @@ interface TypingThreadState {
 interface TypingTimeStoreState {
   threadStates: Record<string, TypingThreadState>;
   recordTyping: (threadId: ThreadId) => void;
+  stopTyping: (threadId: ThreadId) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,40 @@ function getThreadState(
   threadId: string,
 ): TypingThreadState {
   return states[threadId] ?? { totalMs: 0, sessionStart: null, lastActivity: null };
+}
+
+function normalizeTypingThreadState(value: unknown): TypingThreadState | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const record = value as { totalMs?: unknown; sessionStart?: unknown; lastActivity?: unknown };
+  const totalMs = normalizeTimingNumber(record.totalMs);
+  const sessionStart =
+    record.sessionStart === null ? null : normalizeTimingNumber(record.sessionStart);
+  const lastActivity =
+    record.lastActivity === null ? null : normalizeTimingNumber(record.lastActivity);
+  if (totalMs === null || sessionStart === undefined || lastActivity === undefined) {
+    return null;
+  }
+  return { totalMs, sessionStart, lastActivity };
+}
+
+function mergeTypingThreadState(
+  persisted: TypingThreadState | null,
+  current: TypingThreadState | null,
+): TypingThreadState | null {
+  if (!persisted && !current) {
+    return null;
+  }
+  const activeSession =
+    current !== null && (current.sessionStart !== null || current.lastActivity !== null)
+      ? current
+      : persisted;
+  return {
+    totalMs: (persisted?.totalMs ?? 0) + (current?.totalMs ?? 0),
+    sessionStart: activeSession?.sessionStart ?? null,
+    lastActivity: activeSession?.lastActivity ?? null,
+  };
 }
 
 /**
@@ -131,12 +167,40 @@ export const useTypingTimeStore = create<TypingTimeStoreState>()(
           };
         });
       },
+      stopTyping: (threadId: ThreadId) => {
+        const now = Date.now();
+        set((state) => {
+          const prev = getThreadState(state.threadStates, threadId);
+          if (prev.sessionStart === null || prev.lastActivity === null) {
+            return state;
+          }
+          return {
+            threadStates: {
+              ...state.threadStates,
+              [threadId]: {
+                totalMs: prev.totalMs + Math.max(0, now - prev.sessionStart),
+                sessionStart: null,
+                lastActivity: null,
+              },
+            },
+          };
+        });
+      },
     }),
     {
       name: TYPING_TIME_STORAGE_KEY,
       storage: typingTimeStorage,
       // Only persist the raw thread states — actions are not serializable.
       partialize: (state) => ({ threadStates: state.threadStates }),
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...mergePersistedThreadStateMap({
+          persistedState,
+          currentState,
+          normalizeEntry: normalizeTypingThreadState,
+          mergeEntry: mergeTypingThreadState,
+        }),
+      }),
     },
   ),
 );

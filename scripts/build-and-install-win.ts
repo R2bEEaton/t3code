@@ -23,7 +23,8 @@ import { join, win32 } from "node:path";
 
 const RELEASE_DIR = join(import.meta.dirname, "..", "release");
 const ELECTRON_BUILDER_CACHE = join(
-  process.env.LOCALAPPDATA ?? join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Local"),
+  process.env.LOCALAPPDATA ??
+    join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Local"),
   "electron-builder",
   "Cache",
 );
@@ -77,7 +78,9 @@ function ensureWinCodeSignCache(): void {
     return;
   }
 
-  console.log("[build-win] Pre-extracting winCodeSign cache (works around symlink privilege issue)...");
+  console.log(
+    "[build-win] Pre-extracting winCodeSign cache (works around symlink privilege issue)...",
+  );
 
   // Download the archive using curl (available in Windows 10+).
   mkdirSync(WIN_CODE_SIGN_CACHE, { recursive: true });
@@ -99,14 +102,18 @@ function ensureWinCodeSignCache(): void {
   // 7z is more reliable for this archive format.
   const sevenZip = findSevenZip();
   if (!sevenZip) {
-    console.log("[build-win] 7za.exe not yet cached — running a dry-pass of the build to unpack it...");
+    console.log(
+      "[build-win] 7za.exe not yet cached — running a dry-pass of the build to unpack it...",
+    );
     // A quick bun x electron-builder invocation will download 7za.exe to the bunx temp dir.
     run("bun", ["x", "electron-builder", "--version"]);
   }
 
   const sevenZipPath = findSevenZip();
   if (!sevenZipPath) {
-    console.error("[build-win] Could not locate 7za.exe to pre-extract winCodeSign. Continuing anyway (may fail on symlinks).");
+    console.error(
+      "[build-win] Could not locate 7za.exe to pre-extract winCodeSign. Continuing anyway (may fail on symlinks).",
+    );
     return;
   }
 
@@ -118,7 +125,9 @@ function ensureWinCodeSignCache(): void {
     shell: false,
   });
   if (result.status !== 0 && result.status !== 2) {
-    console.error(`[build-win] 7za extraction exited with code ${result.status} — may be OK if only symlink warnings.`);
+    console.error(
+      `[build-win] 7za extraction exited with code ${result.status} — may be OK if only symlink warnings.`,
+    );
   } else {
     console.log("[build-win] winCodeSign extracted successfully (symlink warnings ignored).");
   }
@@ -136,12 +145,7 @@ console.log("\n=== T3 Code — Windows Build & Install ===\n");
 ensureWinCodeSignCache();
 
 // Step 2: run the desktop artifact build script.
-const buildArgs = [
-  "run",
-  "scripts/build-desktop-artifact.ts",
-  "--platform", "win",
-  "--verbose",
-];
+const buildArgs = ["run", "scripts/build-desktop-artifact.ts", "--platform", "win", "--verbose"];
 if (skipBuild) {
   buildArgs.push("--skip-build");
 }
@@ -172,7 +176,8 @@ if (!installerPath || !existsSync(installerPath)) {
 
 console.log(`[build-win] Launching installer: ${installerPath}`);
 // /S = silent install (NSIS silent mode — installs without UI prompts)
-const installResult = spawnSync("cmd.exe", ["/c", `"${installerPath}" /S`], {
+// Spawn the exe directly (no cmd.exe wrapper) to avoid double-quoting issues.
+const installResult = spawnSync(installerPath, ["/S"], {
   stdio: "inherit",
   shell: false,
   env: process.env,

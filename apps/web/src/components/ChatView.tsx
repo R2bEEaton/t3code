@@ -161,6 +161,7 @@ import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { shouldUseCompactComposerFooter } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useTypingTimeStore } from "../typingTimeStore";
+import { useWaitSessionStart, useWaitTimeStore } from "../waitTimeStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
@@ -194,6 +195,7 @@ import {
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
+  deriveRecoveredWaitSessionStartMs,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -203,6 +205,7 @@ import {
   readFileAsDataUrl,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  shouldStopActiveWaitSession,
   threadHasStarted,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -441,9 +444,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     consumeNextSendWhenDoneMessage,
     enqueueMessage,
     enqueueSendWhenDoneMessage,
+    enqueueSendWhenDoneProjectScript,
     moveQueuedMessageToSendWhenDone,
     moveSendWhenDoneMessageToQueue,
     removeMessage,
+    removeSendWhenDoneMessage,
     restoreSendWhenDoneMessage,
     reorderSendWhenDoneMessages,
   } = useMessageQueueStore();
@@ -1569,8 +1574,27 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     openQueueSidebar();
   }, [openQueueSidebar, queueOpen]);
-  const hasActiveSessionTurn = activeThread?.session?.activeTurnId != null;
+  const hasActiveSessionTurn =
+    activeThread?.session?.orchestrationStatus === "running" &&
+    activeThread.session.activeTurnId != null;
   const hasPendingLatestTurnSettlement = activeLatestTurn !== null && !latestTurnSettled;
+  const activeWaitSessionStart = useWaitSessionStart(activeThread?.id ?? null);
+  const isAwaitingAssistantCompletion =
+    Boolean(activeThread) &&
+    (sendInFlightRef.current ||
+      isWorking ||
+      activePendingApproval !== null ||
+      pendingUserInputs.length > 0 ||
+      activePendingProgress !== null ||
+      hasActiveSessionTurn ||
+      hasPendingLatestTurnSettlement);
+  const recoveredWaitSessionStartMs = deriveRecoveredWaitSessionStartMs({
+    isAwaitingAssistantCompletion,
+    activeWaitSessionStart,
+    activeWorkStartedAt,
+    activeLatestTurnStartedAt: activeLatestTurn?.startedAt ?? null,
+    localDispatchStartedAt,
+  });
   const canSendQueuedMessages =
     Boolean(activeThread) &&
     phase === "ready" &&
@@ -1581,6 +1605,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activePendingProgress === null &&
     !hasActiveSessionTurn &&
     !hasPendingLatestTurnSettlement;
+  const shouldStopCurrentWaitSession = shouldStopActiveWaitSession({
+    hasActiveThread: Boolean(activeThread),
+    isAwaitingAssistantCompletion,
+    activeWaitSessionStart,
+    activeLatestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
+    threadError: activeThread?.error,
+  });
+  useEffect(() => {
+    if (!activeThread || recoveredWaitSessionStartMs === null) {
+      return;
+    }
+    useWaitTimeStore.getState().startWaiting(activeThread.id, recoveredWaitSessionStartMs);
+  }, [activeThread, recoveredWaitSessionStartMs]);
+  useEffect(() => {
+    if (!activeThread || !shouldStopCurrentWaitSession) {
+      return;
+    }
+    useWaitTimeStore.getState().stopWaiting(activeThread.id);
+  }, [activeThread, shouldStopCurrentWaitSession]);
   const autoSendWhenDoneInFlightRef = useRef(false);
   const onSendRef = useRef<((e?: { preventDefault: () => void }) => Promise<void>) | null>(null);
   const seedComposerWithQueuedMessage = useCallback(
@@ -1666,34 +1709,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       showPlanFollowUpPrompt,
     ],
   );
-  useEffect(() => {
-    if (
-      !canSendQueuedMessages ||
-      sendWhenDoneMessages.length === 0 ||
-      autoSendWhenDoneInFlightRef.current
-    ) {
-      return;
-    }
-    const nextMessage = consumeNextSendWhenDoneMessage(threadId);
-    if (!nextMessage) {
-      return;
-    }
-    autoSendWhenDoneInFlightRef.current = true;
-    void (async () => {
-      const sent = await sendQueuedMessageText(nextMessage.text);
-      if (!sent) {
-        restoreSendWhenDoneMessage(threadId, nextMessage);
-      }
-      autoSendWhenDoneInFlightRef.current = false;
-    })();
-  }, [
-    canSendQueuedMessages,
-    consumeNextSendWhenDoneMessage,
-    restoreSendWhenDoneMessage,
-    sendQueuedMessageText,
-    sendWhenDoneMessages.length,
-    threadId,
-  ]);
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -1756,7 +1771,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
     ) => {
       const api = readNativeApi();
-      if (!api || !activeThreadId || !activeProject || !activeThread) return;
+      if (!api || !activeThreadId || !activeProject || !activeThread) return false;
       if (options?.rememberAsLastInvoked !== false) {
         setLastInvokedScriptByProjectId((current) => {
           if (current[activeProject.id] === script.id) return current;
@@ -1813,11 +1828,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
           terminalId: targetTerminalId,
           data: `${script.command}\r`,
         });
+        return true;
       } catch (error) {
         setThreadError(
           activeThreadId,
           error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
         );
+        return false;
       }
     },
     [
@@ -1835,6 +1852,68 @@ export default function ChatView({ threadId }: ChatViewProps) {
       terminalState.terminalIds,
     ],
   );
+  const runQueuedProjectScript = useCallback(
+    async (script: ProjectScript) => {
+      if (!canSendQueuedMessages || !activeThread) {
+        return false;
+      }
+      return runProjectScript(script, {
+        rememberAsLastInvoked: false,
+      });
+    },
+    [activeThread, canSendQueuedMessages, runProjectScript],
+  );
+  const onQueueProjectScriptSendWhenDone = useCallback(
+    async (script: ProjectScript) => {
+      if (!activeThread) {
+        return;
+      }
+      const queued = enqueueSendWhenDoneProjectScript(activeThread.id, script);
+      if (!queued) {
+        return;
+      }
+      openQueueSidebar();
+    },
+    [activeThread, enqueueSendWhenDoneProjectScript, openQueueSidebar],
+  );
+  useEffect(() => {
+    if (
+      !canSendQueuedMessages ||
+      sendWhenDoneMessages.length === 0 ||
+      autoSendWhenDoneInFlightRef.current
+    ) {
+      return;
+    }
+    const nextMessage = consumeNextSendWhenDoneMessage(threadId);
+    if (!nextMessage) {
+      return;
+    }
+    autoSendWhenDoneInFlightRef.current = true;
+    void (async () => {
+      const sent =
+        nextMessage.type === "project-script"
+          ? await runQueuedProjectScript({
+              id: nextMessage.scriptId,
+              name: nextMessage.scriptName,
+              command: nextMessage.scriptCommand,
+              icon: nextMessage.scriptIcon,
+              runOnWorktreeCreate: false,
+            })
+          : await sendQueuedMessageText(nextMessage.text);
+      if (!sent) {
+        restoreSendWhenDoneMessage(threadId, nextMessage);
+      }
+      autoSendWhenDoneInFlightRef.current = false;
+    })();
+  }, [
+    canSendQueuedMessages,
+    consumeNextSendWhenDoneMessage,
+    restoreSendWhenDoneMessage,
+    runQueuedProjectScript,
+    sendQueuedMessageText,
+    sendWhenDoneMessages.length,
+    threadId,
+  ]);
 
   useEffect(() => {
     if (!pendingPullRequestSetupRequest || !activeProject || !activeThreadId || !activeThread) {
@@ -2876,6 +2955,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     sendInFlightRef.current = true;
+    useTypingTimeStore.getState().stopTyping(threadIdForSend);
+    useWaitTimeStore.getState().startWaiting(threadIdForSend);
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
 
     const composerImagesSnapshot = [...composerImages];
@@ -3119,6 +3200,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
     sendInFlightRef.current = false;
     if (!turnStartSucceeded) {
+      useWaitTimeStore.getState().stopWaiting(threadIdForSend);
       resetLocalDispatch();
     }
   };
@@ -3319,6 +3401,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
+      useTypingTimeStore.getState().stopTyping(threadIdForSend);
+      useWaitTimeStore.getState().startWaiting(threadIdForSend);
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
       setOptimisticUserMessages((existing) => [
@@ -3387,6 +3471,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send plan follow-up.",
         );
+        useWaitTimeStore.getState().stopWaiting(threadIdForSend);
         sendInFlightRef.current = false;
         resetLocalDispatch();
       }
@@ -3442,6 +3527,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const nextThreadModelSelection: ModelSelection = selectedModelSelection;
 
     sendInFlightRef.current = true;
+    useWaitTimeStore.getState().startWaiting(nextThreadId);
     beginLocalDispatch({ preparingWorktree: false });
     const finish = () => {
       sendInFlightRef.current = false;
@@ -3499,6 +3585,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId: nextThreadId,
           })
           .catch(() => undefined);
+        useWaitTimeStore.getState().stopWaiting(nextThreadId);
         toastManager.add({
           type: "error",
           title: "Could not start implementation thread",
@@ -3960,6 +4047,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             diffOpen={diffOpen}
             onRunProjectScript={(script) => {
               void runProjectScript(script);
+            }}
+            onQueueSendWhenDoneProjectScript={(script) => {
+              void onQueueProjectScriptSendWhenDone(script);
             }}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
@@ -4739,6 +4829,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             moveQueuedMessageToSendWhenDone(threadId, messageId)
           }
           onRemoveMessage={(messageId) => removeMessage(threadId, messageId)}
+          onRemoveSendWhenDoneMessage={(messageId) =>
+            removeSendWhenDoneMessage(threadId, messageId)
+          }
           onMoveSendWhenDoneMessageToQueue={(messageId) =>
             moveSendWhenDoneMessageToQueue(threadId, messageId)
           }

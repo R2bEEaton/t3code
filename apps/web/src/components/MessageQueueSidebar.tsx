@@ -13,21 +13,23 @@ import {
   Undo2Icon,
 } from "lucide-react";
 
-import type { QueuedMessage } from "../messageQueueStore";
+import type { QueuedMessage, QueuedSendWhenDoneEntry } from "../messageQueueStore";
 import { formatTimestamp } from "../timestampFormat";
 import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
+import { ProjectScriptIcon } from "./ProjectScriptIcon";
 import { ScrollArea } from "./ui/scroll-area";
 
 interface MessageQueueSidebarProps {
   canSendQueuedMessages: boolean;
   queuedMessages: readonly QueuedMessage[];
-  sendWhenDoneMessages: readonly QueuedMessage[];
+  sendWhenDoneMessages: readonly QueuedSendWhenDoneEntry[];
   timestampFormat: TimestampFormat;
   onClose: () => void;
   onMoveQueuedMessageToSendWhenDone: (messageId: string) => void;
   onRemoveMessage: (messageId: string) => void;
+  onRemoveSendWhenDoneMessage: (messageId: string) => void;
   onMoveSendWhenDoneMessageToQueue: (messageId: string) => void;
   onReorderSendWhenDoneMessages: (activeMessageId: string, overMessageId: string) => void;
   onSendMessage: (messageId: string) => void;
@@ -35,8 +37,9 @@ interface MessageQueueSidebarProps {
 
 interface SendWhenDoneCardProps {
   index: number;
-  message: QueuedMessage;
+  message: QueuedSendWhenDoneEntry;
   timestampFormat: TimestampFormat;
+  onRemove: (messageId: string) => void;
   onMoveToQueue: (messageId: string) => void;
 }
 
@@ -44,6 +47,7 @@ function SendWhenDoneCard({
   index,
   message,
   timestampFormat,
+  onRemove,
   onMoveToQueue,
 }: SendWhenDoneCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -81,21 +85,49 @@ function SendWhenDoneCard({
         </p>
       </div>
       <div className="space-y-3 px-3 py-3">
-        <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground/90">
-          {message.text}
-        </p>
+        {message.type === "project-script" ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <ProjectScriptIcon icon={message.scriptIcon} className="size-4 text-foreground/80" />
+              <p className="text-[13px] font-medium leading-relaxed text-foreground/90">
+                {message.scriptName}
+              </p>
+            </div>
+            <p className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-muted-foreground/85">
+              {message.scriptCommand}
+            </p>
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground/90">
+            {message.text}
+          </p>
+        )}
         <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="rounded-md"
-            onClick={() => onMoveToQueue(message.id)}
-            aria-label="Move send-when-done message back to the regular queue"
-          >
-            <Undo2Icon className="size-3.5" />
-            Move to queue
-          </Button>
+          {message.type === "project-script" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-md"
+              onClick={() => onRemove(message.id)}
+              aria-label="Delete queued send-when-done action"
+            >
+              <Trash2Icon className="size-3.5" />
+              Delete
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-md"
+              onClick={() => onMoveToQueue(message.id)}
+              aria-label="Move send-when-done message back to the regular queue"
+            >
+              <Undo2Icon className="size-3.5" />
+              Move to queue
+            </Button>
+          )}
         </div>
       </div>
     </article>
@@ -109,6 +141,7 @@ const MessageQueueSidebar = memo(function MessageQueueSidebar({
   timestampFormat,
   onClose,
   onMoveQueuedMessageToSendWhenDone,
+  onRemoveSendWhenDoneMessage,
   onMoveSendWhenDoneMessageToQueue,
   onRemoveMessage,
   onReorderSendWhenDoneMessages,
@@ -278,6 +311,7 @@ const MessageQueueSidebar = memo(function MessageQueueSidebar({
                         index={index}
                         message={message}
                         timestampFormat={timestampFormat}
+                        onRemove={onRemoveSendWhenDoneMessage}
                         onMoveToQueue={onMoveSendWhenDoneMessageToQueue}
                       />
                     ))}

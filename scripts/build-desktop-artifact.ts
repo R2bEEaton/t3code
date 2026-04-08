@@ -154,6 +154,30 @@ function resolvePythonForNodeGyp(): string | undefined {
   return executable;
 }
 
+function resolveWindowsNodeExecutable(): string | undefined {
+  if (process.platform !== "win32") {
+    return undefined;
+  }
+
+  const probe = spawnSync("where.exe", ["node"], {
+    encoding: "utf8",
+    shell: false,
+    env: process.env,
+  });
+  if (probe.status === 0) {
+    const executable = probe.stdout
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length > 0);
+    if (executable && existsSync(executable)) {
+      return executable;
+    }
+  }
+
+  const fallback = "C:\\Program Files\\nodejs\\node.exe";
+  return existsSync(fallback) ? fallback : undefined;
+}
+
 interface ResolvedBuildOptions {
   readonly platform: typeof BuildPlatform.Type;
   readonly target: string;
@@ -715,24 +739,35 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     }
     buildEnv.npm_config_msvs_version = buildEnv.npm_config_msvs_version ?? "2022";
     buildEnv.GYP_MSVS_VERSION = buildEnv.GYP_MSVS_VERSION ?? "2022";
-    // Ensure the bun executable directory is on PATH in Windows format so that
-    // cmd.exe (used for shell: true) can resolve 'bunx'.
+    // Ensure both Bun and Node.js are resolvable for downstream packaging tools.
     const bunDir = win32Path.dirname(process.execPath);
-    buildEnv.PATH = `${bunDir};C:\\Windows\\System32;C:\\Windows;${buildEnv.PATH ?? ""}`;
+    const nodeExecutable = resolveWindowsNodeExecutable();
+    const nodeDir = nodeExecutable ? win32Path.dirname(nodeExecutable) : null;
+    const runtimeDirs = [bunDir, nodeDir, "C:\\Windows\\System32", "C:\\Windows"].filter(
+      (entry): entry is string => Boolean(entry),
+    );
+    buildEnv.PATH = `${runtimeDirs.join(";")};${buildEnv.PATH ?? ""}`;
   }
 
   yield* Effect.log(
     `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
   );
-  yield* runCommand(
-    ChildProcess.make({
-      cwd: stageAppDir,
-      env: buildEnv,
-      ...commandOutputOptions(options.verbose),
-      // Windows needs shell mode to resolve .cmd shims.
-      shell: process.platform === "win32",
-    })`bun x electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
-  );
+  const buildCommand =
+    process.platform === "win32"
+      ? ChildProcess.make({
+          cwd: stageAppDir,
+          env: buildEnv,
+          ...commandOutputOptions(options.verbose),
+          // Windows uses npm's Node-backed runner so postinstall scripts can invoke `node`.
+          shell: true,
+        })`npx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`
+      : ChildProcess.make({
+          cwd: stageAppDir,
+          env: buildEnv,
+          ...commandOutputOptions(options.verbose),
+          shell: false,
+        })`bun x electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`;
+  yield* runCommand(buildCommand);
 
   const stageDistDir = path.join(stageAppDir, "dist");
   if (!(yield* fs.exists(stageDistDir))) {

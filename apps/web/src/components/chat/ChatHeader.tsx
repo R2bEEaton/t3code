@@ -6,8 +6,16 @@ import {
 } from "@t3tools/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { ClockIcon, DiffIcon, ListOrderedIcon, TerminalSquareIcon } from "lucide-react";
+import {
+  ClockIcon,
+  DiffIcon,
+  ListOrderedIcon,
+  PercentIcon,
+  TerminalSquareIcon,
+  TimerIcon,
+} from "lucide-react";
 import { useTypingTime } from "../../typingTimeStore";
+import { useWaitTime } from "../../waitTimeStore";
 import { formatDuration } from "../../session-logic";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -33,6 +41,7 @@ interface ChatHeaderProps {
   gitCwd: string | null;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
+  onQueueSendWhenDoneProjectScript: (script: ProjectScript) => Promise<void> | void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
@@ -60,6 +69,7 @@ export const ChatHeader = memo(function ChatHeader({
   gitCwd,
   diffOpen,
   onRunProjectScript,
+  onQueueSendWhenDoneProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
@@ -70,6 +80,10 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleQueue,
 }: ChatHeaderProps) {
   const typingMs = useTypingTime(activeThreadId);
+  const waitMs = useWaitTime(activeThreadId);
+  const totalInteractionMs = typingMs + waitMs;
+  const showTypingWaitRatio = totalInteractionMs > 0;
+  const typingWaitRatioLabel = `${Math.round((typingMs / totalInteractionMs) * 100)}%`;
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -106,6 +120,40 @@ export const ChatHeader = memo(function ChatHeader({
             <TooltipPopup side="bottom">Typing time this thread</TooltipPopup>
           </Tooltip>
         )}
+        {waitMs > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 text-[10px] tabular-nums text-muted-foreground"
+                >
+                  <TimerIcon className="size-2.5" />
+                  {formatDuration(waitMs)}
+                </Badge>
+              }
+            />
+            <TooltipPopup side="bottom">Wait time this thread</TooltipPopup>
+          </Tooltip>
+        )}
+        {showTypingWaitRatio && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Badge
+                  variant="outline"
+                  className="shrink-0 gap-1 text-[10px] tabular-nums text-muted-foreground"
+                >
+                  <PercentIcon className="size-2.5" />
+                  {typingWaitRatioLabel}
+                </Badge>
+              }
+            />
+            <TooltipPopup side="bottom">
+              Typing time as a percentage of total typing and wait time
+            </TooltipPopup>
+          </Tooltip>
+        )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
         {activeProjectScripts && (
@@ -114,6 +162,7 @@ export const ChatHeader = memo(function ChatHeader({
             keybindings={keybindings}
             preferredScriptId={preferredScriptId}
             onRunScript={onRunProjectScript}
+            onQueueSendWhenDoneScript={onQueueSendWhenDoneProjectScript}
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
             onDeleteScript={onDeleteProjectScript}

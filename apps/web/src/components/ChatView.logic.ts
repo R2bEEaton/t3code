@@ -272,3 +272,53 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
   );
 }
+
+function parseIsoTimestampToMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function deriveRecoveredWaitSessionStartMs(input: {
+  isAwaitingAssistantCompletion: boolean;
+  activeWaitSessionStart: number | null;
+  activeWorkStartedAt: string | null;
+  activeLatestTurnStartedAt: string | null;
+  localDispatchStartedAt: string | null;
+  nowMs?: number;
+}): number | null {
+  if (!input.isAwaitingAssistantCompletion || input.activeWaitSessionStart !== null) {
+    return null;
+  }
+
+  return (
+    parseIsoTimestampToMs(input.activeWorkStartedAt) ??
+    parseIsoTimestampToMs(input.activeLatestTurnStartedAt) ??
+    parseIsoTimestampToMs(input.localDispatchStartedAt) ??
+    input.nowMs ??
+    Date.now()
+  );
+}
+
+export function shouldStopActiveWaitSession(input: {
+  hasActiveThread: boolean;
+  isAwaitingAssistantCompletion: boolean;
+  activeWaitSessionStart: number | null;
+  activeLatestTurnCompletedAt: string | null;
+  threadError: string | null | undefined;
+}): boolean {
+  if (!input.hasActiveThread || input.activeWaitSessionStart === null) {
+    return false;
+  }
+  if (input.isAwaitingAssistantCompletion) {
+    return false;
+  }
+  if (input.threadError) {
+    return true;
+  }
+
+  const completedAtMs = parseIsoTimestampToMs(input.activeLatestTurnCompletedAt);
+  return completedAtMs !== null && completedAtMs >= input.activeWaitSessionStart;
+}

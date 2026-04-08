@@ -1,19 +1,9 @@
 import type {
   ProjectScript,
-  ProjectScriptIcon,
+  ProjectScriptIcon as ProjectScriptIconType,
   ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import {
-  BugIcon,
-  ChevronDownIcon,
-  FlaskConicalIcon,
-  HammerIcon,
-  ListChecksIcon,
-  PlayIcon,
-  PlusIcon,
-  SettingsIcon,
-  WrenchIcon,
-} from "lucide-react";
+import { ChevronDownIcon, PlusIcon, SettingsIcon } from "lucide-react";
 import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useState } from "react";
 
 import {
@@ -27,6 +17,7 @@ import {
 } from "~/projectScripts";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { isMacPlatform } from "~/lib/utils";
+import { readNativeApi } from "~/nativeApi";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -53,8 +44,9 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu"
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
+import { ProjectScriptIcon } from "./ProjectScriptIcon";
 
-const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
+const SCRIPT_ICONS: Array<{ id: ProjectScriptIconType; label: string }> = [
   { id: "play", label: "Play" },
   { id: "test", label: "Test" },
   { id: "lint", label: "Lint" },
@@ -63,25 +55,10 @@ const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "debug", label: "Debug" },
 ];
 
-function ScriptIcon({
-  icon,
-  className = "size-3.5",
-}: {
-  icon: ProjectScriptIcon;
-  className?: string;
-}) {
-  if (icon === "test") return <FlaskConicalIcon className={className} />;
-  if (icon === "lint") return <ListChecksIcon className={className} />;
-  if (icon === "configure") return <WrenchIcon className={className} />;
-  if (icon === "build") return <HammerIcon className={className} />;
-  if (icon === "debug") return <BugIcon className={className} />;
-  return <PlayIcon className={className} />;
-}
-
 export interface NewProjectScriptInput {
   name: string;
   command: string;
-  icon: ProjectScriptIcon;
+  icon: ProjectScriptIconType;
   runOnWorktreeCreate: boolean;
   keybinding: string | null;
 }
@@ -91,6 +68,7 @@ interface ProjectScriptsControlProps {
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
+  onQueueSendWhenDoneScript: (script: ProjectScript) => Promise<void> | void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
   onDeleteScript: (scriptId: string) => Promise<void> | void;
@@ -152,6 +130,7 @@ export default function ProjectScriptsControl({
   keybindings,
   preferredScriptId = null,
   onRunScript,
+  onQueueSendWhenDoneScript,
   onAddScript,
   onUpdateScript,
   onDeleteScript,
@@ -161,7 +140,7 @@ export default function ProjectScriptsControl({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
-  const [icon, setIcon] = useState<ProjectScriptIcon>("play");
+  const [icon, setIcon] = useState<ProjectScriptIconType>("play");
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(false);
   const [keybinding, setKeybinding] = useState("");
@@ -265,6 +244,22 @@ export default function ProjectScriptsControl({
     setDialogOpen(false);
     void onDeleteScript(editingScriptId);
   }, [editingScriptId, onDeleteScript]);
+  const openScriptContextMenu = useCallback(
+    async (script: ProjectScript, position: { x: number; y: number }) => {
+      const api = readNativeApi();
+      if (!api) {
+        return;
+      }
+      const clicked = await api.contextMenu.show(
+        [{ id: "send-when-done", label: "Send when done" }] as const,
+        position,
+      );
+      if (clicked === "send-when-done") {
+        await onQueueSendWhenDoneScript(script);
+      }
+    },
+    [onQueueSendWhenDoneScript],
+  );
 
   return (
     <>
@@ -274,9 +269,16 @@ export default function ProjectScriptsControl({
             size="xs"
             variant="outline"
             onClick={() => onRunScript(primaryScript)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              void openScriptContextMenu(primaryScript, {
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
             title={`Run ${primaryScript.name}`}
           >
-            <ScriptIcon icon={primaryScript.icon} />
+            <ProjectScriptIcon icon={primaryScript.icon} />
             <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
               {primaryScript.name}
             </span>
@@ -299,8 +301,16 @@ export default function ProjectScriptsControl({
                     key={script.id}
                     className={`group ${dropdownItemClassName}`}
                     onClick={() => onRunScript(script)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void openScriptContextMenu(script, {
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
+                    }}
                   >
-                    <ScriptIcon icon={script.icon} className="size-4" />
+                    <ProjectScriptIcon icon={script.icon} className="size-4" />
                     <span className="truncate">
                       {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
                     </span>
@@ -390,7 +400,7 @@ export default function ProjectScriptsControl({
                         />
                       }
                     >
-                      <ScriptIcon icon={icon} className="size-4.5" />
+                      <ProjectScriptIcon icon={icon} className="size-4.5" />
                     </PopoverTrigger>
                     <PopoverPopup align="start">
                       <div className="grid grid-cols-3 gap-2">
@@ -410,7 +420,7 @@ export default function ProjectScriptsControl({
                                 setIconPickerOpen(false);
                               }}
                             >
-                              <ScriptIcon icon={entry.id} className="size-4" />
+                              <ProjectScriptIcon icon={entry.id} className="size-4" />
                               <span>{entry.label}</span>
                             </button>
                           );

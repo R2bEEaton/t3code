@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId, type ProjectScript } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useMessageQueueStore } from "./messageQueueStore";
@@ -6,6 +6,13 @@ import { useMessageQueueStore } from "./messageQueueStore";
 describe("messageQueueStore", () => {
   const threadId = ThreadId.makeUnsafe("thread-queue-a");
   const otherThreadId = ThreadId.makeUnsafe("thread-queue-b");
+  const projectScript: ProjectScript = {
+    id: "test",
+    name: "Run tests",
+    command: "bun run test",
+    icon: "test",
+    runOnWorktreeCreate: false,
+  };
 
   beforeEach(() => {
     useMessageQueueStore.setState({
@@ -20,6 +27,7 @@ describe("messageQueueStore", () => {
       .enqueueMessage(threadId, "  queued follow-up  ");
 
     expect(queuedMessage).toMatchObject({
+      type: "message",
       text: "queued follow-up",
     });
     expect(useMessageQueueStore.getState().queuedMessagesByThreadId[threadId]).toEqual([
@@ -35,6 +43,7 @@ describe("messageQueueStore", () => {
       .enqueueSendWhenDoneMessage(threadId, "  send after this  ");
 
     expect(queuedMessage).toMatchObject({
+      type: "message",
       text: "send after this",
     });
     expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
@@ -56,6 +65,26 @@ describe("messageQueueStore", () => {
     expect(
       useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId],
     ).toBeUndefined();
+  });
+
+  it("enqueues project scripts for send-when-done", () => {
+    const queuedScript = useMessageQueueStore
+      .getState()
+      .enqueueSendWhenDoneProjectScript(threadId, projectScript);
+
+    expect(queuedScript).toMatchObject({
+      type: "project-script",
+      scriptId: "test",
+      scriptName: "Run tests",
+      scriptCommand: "bun run test",
+      scriptIcon: "test",
+    });
+    expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
+      expect.objectContaining({
+        type: "project-script",
+        scriptId: "test",
+      }),
+    ]);
   });
 
   it("removes only the targeted queued message", () => {
@@ -108,8 +137,8 @@ describe("messageQueueStore", () => {
 
     expect(useMessageQueueStore.getState().queuedMessagesByThreadId[threadId]).toBeUndefined();
     expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
-      expect.objectContaining({ id: other!.id, text: "later" }),
-      expect.objectContaining({ id: regular!.id, text: "first" }),
+      expect.objectContaining({ id: other!.id, type: "message", text: "later" }),
+      expect.objectContaining({ id: regular!.id, type: "message", text: "first" }),
     ]);
   });
 
@@ -120,9 +149,9 @@ describe("messageQueueStore", () => {
 
     const consumed = store.consumeNextSendWhenDoneMessage(threadId);
 
-    expect(consumed).toMatchObject({ id: first!.id, text: "first" });
+    expect(consumed).toMatchObject({ id: first!.id, type: "message", text: "first" });
     expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
-      expect.objectContaining({ id: second!.id, text: "second" }),
+      expect.objectContaining({ id: second!.id, type: "message", text: "second" }),
     ]);
   });
 
@@ -132,13 +161,42 @@ describe("messageQueueStore", () => {
     const second = store.enqueueSendWhenDoneMessage(threadId, "second");
     const consumed = store.consumeNextSendWhenDoneMessage(threadId);
 
-    expect(consumed).toMatchObject({ id: first!.id, text: "first" });
+    expect(consumed).toMatchObject({ id: first!.id, type: "message", text: "first" });
 
     store.restoreSendWhenDoneMessage(threadId, consumed!);
 
     expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
-      expect.objectContaining({ id: first!.id, text: "first" }),
-      expect.objectContaining({ id: second!.id, text: "second" }),
+      expect.objectContaining({ id: first!.id, type: "message", text: "first" }),
+      expect.objectContaining({ id: second!.id, type: "message", text: "second" }),
+    ]);
+  });
+
+  it("removes a send-when-done project script entry", () => {
+    const store = useMessageQueueStore.getState();
+    const queuedScript = store.enqueueSendWhenDoneProjectScript(threadId, projectScript);
+    const queuedMessage = store.enqueueSendWhenDoneMessage(threadId, "later");
+
+    expect(queuedScript).not.toBeNull();
+    expect(queuedMessage).not.toBeNull();
+
+    store.removeSendWhenDoneMessage(threadId, queuedScript!.id);
+
+    expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
+      expect.objectContaining({ id: queuedMessage!.id, type: "message", text: "later" }),
+    ]);
+  });
+
+  it("does not move send-when-done project scripts back into the regular queue", () => {
+    const store = useMessageQueueStore.getState();
+    const queuedScript = store.enqueueSendWhenDoneProjectScript(threadId, projectScript);
+
+    expect(queuedScript).not.toBeNull();
+
+    store.moveSendWhenDoneMessageToQueue(threadId, queuedScript!.id);
+
+    expect(useMessageQueueStore.getState().queuedMessagesByThreadId[threadId]).toBeUndefined();
+    expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
+      expect.objectContaining({ id: queuedScript!.id, type: "project-script" }),
     ]);
   });
 
@@ -151,11 +209,11 @@ describe("messageQueueStore", () => {
     store.reorderSendWhenDoneMessages(threadId, second!.id, first!.id);
 
     expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[threadId]).toEqual([
-      expect.objectContaining({ id: second!.id, text: "second" }),
-      expect.objectContaining({ id: first!.id, text: "first" }),
+      expect.objectContaining({ id: second!.id, type: "message", text: "second" }),
+      expect.objectContaining({ id: first!.id, type: "message", text: "first" }),
     ]);
     expect(useMessageQueueStore.getState().sendWhenDoneMessagesByThreadId[otherThreadId]).toEqual([
-      expect.objectContaining({ text: "other" }),
+      expect.objectContaining({ type: "message", text: "other" }),
     ]);
   });
 

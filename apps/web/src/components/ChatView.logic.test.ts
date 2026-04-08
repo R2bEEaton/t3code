@@ -5,8 +5,10 @@ import { useStore } from "../store";
 import {
   buildExpiredTerminalContextToastCopy,
   createLocalDispatchSnapshot,
+  deriveRecoveredWaitSessionStartMs,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
+  shouldStopActiveWaitSession,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 
@@ -359,5 +361,69 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         threadError: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("deriveRecoveredWaitSessionStartMs", () => {
+  it("uses local dispatch timing for a fresh send when no wait session exists yet", () => {
+    expect(
+      deriveRecoveredWaitSessionStartMs({
+        isAwaitingAssistantCompletion: true,
+        activeWaitSessionStart: null,
+        activeWorkStartedAt: null,
+        activeLatestTurnStartedAt: null,
+        localDispatchStartedAt: "2026-03-29T00:00:05.000Z",
+      }),
+    ).toBe(Date.parse("2026-03-29T00:00:05.000Z"));
+  });
+
+  it("uses the active work timing for an existing running turn after reconnect", () => {
+    expect(
+      deriveRecoveredWaitSessionStartMs({
+        isAwaitingAssistantCompletion: true,
+        activeWaitSessionStart: null,
+        activeWorkStartedAt: "2026-03-29T00:00:03.000Z",
+        activeLatestTurnStartedAt: "2026-03-29T00:00:04.000Z",
+        localDispatchStartedAt: "2026-03-29T00:00:05.000Z",
+      }),
+    ).toBe(Date.parse("2026-03-29T00:00:03.000Z"));
+  });
+
+  it("does not recover a second time when a wait session is already active", () => {
+    expect(
+      deriveRecoveredWaitSessionStartMs({
+        isAwaitingAssistantCompletion: true,
+        activeWaitSessionStart: 123,
+        activeWorkStartedAt: "2026-03-29T00:00:03.000Z",
+        activeLatestTurnStartedAt: "2026-03-29T00:00:04.000Z",
+        localDispatchStartedAt: "2026-03-29T00:00:05.000Z",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("shouldStopActiveWaitSession", () => {
+  it("stops waiting once completion evidence exists and the thread is no longer awaiting", () => {
+    expect(
+      shouldStopActiveWaitSession({
+        hasActiveThread: true,
+        isAwaitingAssistantCompletion: false,
+        activeWaitSessionStart: Date.parse("2026-03-29T00:00:01.000Z"),
+        activeLatestTurnCompletedAt: "2026-03-29T00:00:10.000Z",
+        threadError: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not stop waiting while the assistant is still considered active", () => {
+    expect(
+      shouldStopActiveWaitSession({
+        hasActiveThread: true,
+        isAwaitingAssistantCompletion: true,
+        activeWaitSessionStart: Date.parse("2026-03-29T00:00:01.000Z"),
+        activeLatestTurnCompletedAt: "2026-03-29T00:00:10.000Z",
+        threadError: null,
+      }),
+    ).toBe(false);
   });
 });
