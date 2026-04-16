@@ -1,11 +1,14 @@
 import {
+  type EnvironmentId,
   type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
+import { type DraftId } from "~/composerDraftStore";
 import {
   ClockIcon,
   DiffIcon,
@@ -14,18 +17,20 @@ import {
   TerminalSquareIcon,
   TimerIcon,
 } from "lucide-react";
-import { useTypingTime } from "../../typingTimeStore";
-import { useWaitTime } from "../../waitTimeStore";
-import { formatDuration } from "../../session-logic";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
+import { useTypingTime } from "../../typingTimeStore";
+import { useWaitTime } from "../../waitTimeStore";
+import { formatDuration } from "../../session-logic";
 
 interface ChatHeaderProps {
+  activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
+  draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
@@ -53,7 +58,9 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = memo(function ChatHeader({
+  activeThreadEnvironmentId,
   activeThreadId,
+  draftId,
   activeThreadTitle,
   activeProjectName,
   isGitRepo,
@@ -84,6 +91,7 @@ export const ChatHeader = memo(function ChatHeader({
   const totalInteractionMs = typingMs + waitMs;
   const showTypingWaitRatio = totalInteractionMs > 0;
   const typingWaitRatioLabel = `${Math.round((typingMs / totalInteractionMs) * 100)}%`;
+
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -175,7 +183,13 @@ export const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
+        {activeProjectName && (
+          <GitActionsControl
+            gitCwd={gitCwd}
+            activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+            {...(draftId ? { draftId } : {})}
+          />
+        )}
         <Tooltip>
           <TooltipTrigger
             render={

@@ -17,7 +17,7 @@ import {
 } from "~/projectScripts";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { isMacPlatform } from "~/lib/utils";
-import { readNativeApi } from "~/nativeApi";
+import { readLocalApi } from "~/localApi";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -246,7 +246,7 @@ export default function ProjectScriptsControl({
   }, [editingScriptId, onDeleteScript]);
   const openScriptContextMenu = useCallback(
     async (script: ProjectScript, position: { x: number; y: number }) => {
-      const api = readNativeApi();
+      const api = readLocalApi();
       if (!api) {
         return;
       }

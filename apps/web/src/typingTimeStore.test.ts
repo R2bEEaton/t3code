@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeLiveMs, useTypingTimeStore } from "./typingTimeStore";
 
 describe("typingTimeStore", () => {
-  const threadId = ThreadId.makeUnsafe("thread-typing-a");
+  const threadId = ThreadId.make("thread-typing-a");
 
   beforeEach(() => {
     vi.useFakeTimers();

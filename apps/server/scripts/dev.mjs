@@ -5,7 +5,7 @@ import path from "node:path";
 const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const isWindows = process.platform === "win32";
 const command = isWindows ? path.join(serverDir, "node_modules", ".bin", "tsx.exe") : "bun";
-const args = isWindows ? ["src/index.ts"] : ["run", "src/index.ts"];
+const args = isWindows ? ["src/bin.ts"] : ["run", "src/bin.ts"];
 
 const child = spawn(command, args, {
   cwd: serverDir,

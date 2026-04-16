@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useMessageQueueStore } from "./messageQueueStore";
 
 describe("messageQueueStore", () => {
-  const threadId = ThreadId.makeUnsafe("thread-queue-a");
-  const otherThreadId = ThreadId.makeUnsafe("thread-queue-b");
+  const threadId = ThreadId.make("thread-queue-a");
+  const otherThreadId = ThreadId.make("thread-queue-b");
   const projectScript: ProjectScript = {
     id: "test",
     name: "Run tests",

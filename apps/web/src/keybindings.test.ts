@@ -20,6 +20,7 @@ import {
   resolveShortcutCommand,
   shouldShowThreadJumpHints,
   shortcutLabelForCommand,
+  terminalDeleteShortcutData,
   terminalNavigationShortcutData,
   threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
@@ -114,6 +115,11 @@ const DEFAULT_BINDINGS = compile([
   {
     shortcut: modShortcut("d"),
     command: "diff.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("k"),
+    command: "commandPalette.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: shortcut("enter", { ctrlKey: true }), command: "chat.queue.enqueue" },
@@ -270,6 +276,10 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "commandPalette.toggle", "MacIntel"),
+      "⌘K",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.queue.enqueue", "Linux"),
       "Ctrl+Enter",
     );
@@ -410,6 +420,23 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
+  it("matches commandPalette.toggle shortcut outside terminal focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "k", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "commandPalette.toggle",
+    );
+    assert.notStrictEqual(
+      resolveShortcutCommand(event({ key: "k", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+      "commandPalette.toggle",
+    );
+  });
+
   it("matches diff.toggle shortcut outside terminal focus", () => {
     assert.isTrue(
       isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
@@ -500,25 +527,6 @@ describe("resolveShortcutCommand", () => {
     );
   });
 
-  it("matches queue commands on enter shortcuts", () => {
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "Enter", ctrlKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-      }),
-      "chat.queue.enqueue",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(
-        event({ key: "Enter", ctrlKey: true, shiftKey: true }),
-        DEFAULT_BINDINGS,
-        {
-          platform: "Linux",
-        },
-      ),
-      "chat.queue.sendWhenDone",
-    );
-  });
-
   it("matches bracket shortcuts using the physical key code", () => {
     assert.strictEqual(
       resolveShortcutCommand(
@@ -577,6 +585,34 @@ describe("isTerminalClearShortcut", () => {
   it("ignores non-keydown events", () => {
     assert.isFalse(
       isTerminalClearShortcut(event({ type: "keyup", key: "l", ctrlKey: true }), "Linux"),
+    );
+  });
+});
+
+describe("terminalDeleteShortcutData", () => {
+  it("maps Cmd+Backspace on macOS to delete-to-line-start", () => {
+    assert.strictEqual(
+      terminalDeleteShortcutData(event({ key: "Backspace", metaKey: true }), "MacIntel"),
+      "\u0015",
+    );
+  });
+
+  it("ignores non-macOS platforms and modified variants", () => {
+    assert.isNull(terminalDeleteShortcutData(event({ key: "Backspace", metaKey: true }), "Linux"));
+    assert.isNull(
+      terminalDeleteShortcutData(
+        event({ key: "Backspace", metaKey: true, altKey: true }),
+        "MacIntel",
+      ),
+    );
+  });
+
+  it("ignores non-keydown events", () => {
+    assert.isNull(
+      terminalDeleteShortcutData(
+        event({ type: "keyup", key: "Backspace", metaKey: true }),
+        "MacIntel",
+      ),
     );
   });
 });

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeLiveWaitMs, useWaitTimeStore } from "./waitTimeStore";
 
 describe("waitTimeStore", () => {
-  const threadId = ThreadId.makeUnsafe("thread-wait-a");
+  const threadId = ThreadId.make("thread-wait-a");
 
   beforeEach(() => {
     vi.useFakeTimers();
