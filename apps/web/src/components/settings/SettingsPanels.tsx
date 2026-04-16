@@ -35,6 +35,7 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
+import { useAudioOutputDevices } from "../../hooks/useAudioOutputDevices";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import {
@@ -53,6 +54,7 @@ import {
   selectThreadShellsAcrossEnvironments,
   useStore,
 } from "../../store";
+import { playNotificationChime } from "../../notificationChime";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -153,7 +155,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Disabled",
       detail:
-        provider.message ?? "This provider is installed but disabled for new sessions in T3 Code.",
+        provider.message ?? "This provider is installed but disabled for new sessions in R2 Code.",
     };
   }
   if (!provider.installed) {
@@ -435,6 +437,16 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
+      ...(settings.agentChimeEnabled !== DEFAULT_UNIFIED_SETTINGS.agentChimeEnabled
+        ? ["Agent chime"]
+        : []),
+      ...(settings.agentChimeOutputDeviceId !== DEFAULT_UNIFIED_SETTINGS.agentChimeOutputDeviceId
+        ? ["Chime output device"]
+        : []),
+      ...(settings.agentChimeWithSendWhenDone !==
+      DEFAULT_UNIFIED_SETTINGS.agentChimeWithSendWhenDone
+        ? ["Chime on send-when-done"]
+        : []),
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
         : []),
@@ -462,6 +474,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.addProjectBaseDirectory,
+      settings.agentChimeEnabled,
+      settings.agentChimeOutputDeviceId,
+      settings.agentChimeWithSendWhenDone,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
@@ -502,6 +517,7 @@ export function GeneralSettingsPanel() {
   const [openPathErrorByTarget, setOpenPathErrorByTarget] = useState<
     Partial<Record<"keybindings" | "logsDirectory", string | null>>
   >({});
+  const [isTestingAgentChime, setIsTestingAgentChime] = useState(false);
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
     codex: Boolean(
       settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
@@ -559,6 +575,31 @@ export function GeneralSettingsPanel() {
     const mode = observability?.localTracingEnabled ? "Local trace file" : "Terminal logs only";
     return exports.length > 0 ? `${mode}. OTLP exporting ${exports.join(" and ")}.` : `${mode}.`;
   })();
+  const {
+    audioOutputDevices,
+    audioOutputDevicesError,
+    audioOutputDevicesLoading,
+    audioOutputSelectionSupported,
+    refreshAudioOutputDevices,
+  } = useAudioOutputDevices(settings.agentChimeOutputDeviceId);
+  const selectedAudioOutputDevice =
+    audioOutputDevices.find((device) => device.deviceId === settings.agentChimeOutputDeviceId) ??
+    audioOutputDevices[0] ??
+    null;
+  const handleTestAgentChime = useCallback(() => {
+    setIsTestingAgentChime(true);
+    void playNotificationChime(settings.agentChimeOutputDeviceId)
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not play chime",
+          description: error instanceof Error ? error.message : "Unable to play the chime.",
+        });
+      })
+      .finally(() => {
+        setIsTestingAgentChime(false);
+      });
+  }, [settings.agentChimeOutputDeviceId]);
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
@@ -759,7 +800,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection title="General">
         <SettingsRow
           title="Theme"
-          description="Choose how T3 Code looks across the app."
+          description="Choose how R2 Code looks across the app."
           resetAction={
             theme !== "system" ? (
               <SettingResetButton label="theme" onClick={() => setTheme("system")} />
@@ -831,6 +872,123 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+
+        <SettingsRow
+          title="Agent chime"
+          description="Play a short chime when a turn completes or when the agent pauses for user input."
+          resetAction={
+            settings.agentChimeEnabled !== DEFAULT_UNIFIED_SETTINGS.agentChimeEnabled ||
+            settings.agentChimeOutputDeviceId !==
+              DEFAULT_UNIFIED_SETTINGS.agentChimeOutputDeviceId ||
+            settings.agentChimeWithSendWhenDone !==
+              DEFAULT_UNIFIED_SETTINGS.agentChimeWithSendWhenDone ? (
+              <SettingResetButton
+                label="agent chime"
+                onClick={() =>
+                  updateSettings({
+                    agentChimeEnabled: DEFAULT_UNIFIED_SETTINGS.agentChimeEnabled,
+                    agentChimeOutputDeviceId: DEFAULT_UNIFIED_SETTINGS.agentChimeOutputDeviceId,
+                    agentChimeWithSendWhenDone: DEFAULT_UNIFIED_SETTINGS.agentChimeWithSendWhenDone,
+                  })
+                }
+              />
+            ) : null
+          }
+          status={
+            audioOutputDevicesError ? (
+              <span className="text-destructive">{audioOutputDevicesError}</span>
+            ) : !audioOutputSelectionSupported ? (
+              "Per-device speaker routing is not supported here, so the chime uses your system default output."
+            ) : settings.agentChimeOutputDeviceId.length > 0 &&
+              !selectedAudioOutputDevice?.available ? (
+              "The selected output device is unavailable. Switch back to the system default or choose another device."
+            ) : audioOutputDevicesLoading ? (
+              "Scanning available audio outputs..."
+            ) : (
+              `Current output: ${selectedAudioOutputDevice?.label ?? "System default"}`
+            )
+          }
+          control={
+            <Switch
+              checked={settings.agentChimeEnabled}
+              onCheckedChange={(checked) => updateSettings({ agentChimeEnabled: Boolean(checked) })}
+              aria-label="Play an agent notification chime"
+            />
+          }
+        >
+          <div className="mt-3 flex flex-col gap-3 border-t border-border/60 pt-3 sm:flex-row sm:items-center">
+            <Select
+              value={settings.agentChimeOutputDeviceId}
+              disabled={!audioOutputSelectionSupported}
+              onValueChange={(value) => {
+                if (value === null) {
+                  return;
+                }
+                updateSettings({ agentChimeOutputDeviceId: value });
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-64" aria-label="Agent chime output device">
+                <SelectValue>{selectedAudioOutputDevice?.label ?? "System default"}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="start" alignItemWithTrigger={false}>
+                {audioOutputDevices.map((device) => (
+                  <SelectItem
+                    hideIndicator
+                    key={device.deviceId || "__default__"}
+                    value={device.deviceId}
+                  >
+                    {device.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={!audioOutputSelectionSupported || audioOutputDevicesLoading}
+                onClick={() => {
+                  void refreshAudioOutputDevices();
+                }}
+              >
+                {audioOutputDevicesLoading ? (
+                  <LoaderIcon className="size-3 animate-spin" />
+                ) : (
+                  <RefreshCwIcon className="size-3" />
+                )}
+                Refresh
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={isTestingAgentChime}
+                onClick={handleTestAgentChime}
+              >
+                {isTestingAgentChime ? "Playing..." : "Test chime"}
+              </Button>
+            </div>
+          </div>
+          <div className="mt-3 border-t border-border/60 pt-3">
+            <label className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  Play chime with send-when-done messages
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  When disabled, turn completion stays silent if the next send-when-done item is a
+                  queued text message. Queued project scripts still chime.
+                </span>
+              </div>
+              <Switch
+                checked={settings.agentChimeWithSendWhenDone}
+                onCheckedChange={(checked) =>
+                  updateSettings({ agentChimeWithSendWhenDone: Boolean(checked) })
+                }
+                aria-label="Play chime with send-when-done messages"
+              />
+            </label>
+          </div>
+        </SettingsRow>
 
         <SettingsRow
           title="Diff line wrapping"

@@ -529,6 +529,9 @@ describe("wsApi", () => {
 
   it("reads and writes persistence through the desktop bridge when available", async () => {
     const getClientSettings = vi.fn().mockResolvedValue({
+      agentChimeEnabled: true,
+      agentChimeOutputDeviceId: "",
+      agentChimeWithSendWhenDone: true,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffWordWrap: true,
@@ -557,6 +560,9 @@ describe("wsApi", () => {
 
     await api.persistence.getClientSettings();
     await api.persistence.setClientSettings({
+      agentChimeEnabled: true,
+      agentChimeOutputDeviceId: "",
+      agentChimeWithSendWhenDone: true,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffWordWrap: true,
@@ -575,6 +581,9 @@ describe("wsApi", () => {
 
     expect(getClientSettings).toHaveBeenCalledWith();
     expect(setClientSettings).toHaveBeenCalledWith({
+      agentChimeEnabled: true,
+      agentChimeOutputDeviceId: "",
+      agentChimeWithSendWhenDone: true,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffWordWrap: true,
@@ -594,6 +603,9 @@ describe("wsApi", () => {
     const api = createLocalApi(rpcClientMock as never);
 
     await api.persistence.setClientSettings({
+      agentChimeEnabled: true,
+      agentChimeOutputDeviceId: "",
+      agentChimeWithSendWhenDone: true,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffWordWrap: true,
@@ -617,6 +629,9 @@ describe("wsApi", () => {
     );
 
     await expect(api.persistence.getClientSettings()).resolves.toEqual({
+      agentChimeEnabled: true,
+      agentChimeOutputDeviceId: "",
+      agentChimeWithSendWhenDone: true,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffWordWrap: true,

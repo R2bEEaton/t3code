@@ -49,6 +49,9 @@ function makeSecretStorage(available: boolean): DesktopSecretStorage {
 }
 
 const clientSettings: ClientSettings = {
+  agentChimeEnabled: true,
+  agentChimeOutputDeviceId: "",
+  agentChimeWithSendWhenDone: true,
   confirmThreadArchive: true,
   confirmThreadDelete: false,
   diffWordWrap: true,
