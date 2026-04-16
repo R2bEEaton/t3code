@@ -54,7 +54,7 @@ function describeExhaustedToast(): string {
 }
 
 function buildReconnectTitle(_status: WsConnectionStatus): string {
-  return "Disconnected from R2 Code Server";
+  return "Disconnected from T3 Server";
 }
 
 function describeRecoveredToast(
@@ -270,7 +270,7 @@ export function WebSocketConnectionCoordinator() {
               },
               description: describeExhaustedToast(),
               timeout: 0,
-              title: "Disconnected from R2 Code Server",
+              title: "Disconnected from T3 Server",
               type: "error" as const,
               data: {
                 hideCopyButton: true,
@@ -310,7 +310,7 @@ export function WebSocketConnectionCoordinator() {
     ) {
       const successToast = {
         description: describeRecoveredToast(previousDisconnectedAt, status.connectedAt),
-        title: "Reconnected to R2 Code Server",
+        title: "Reconnected to T3 Server",
         type: "success" as const,
         timeout: 0,
         data: {

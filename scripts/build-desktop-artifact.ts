@@ -529,8 +529,8 @@ export function resolveMockUpdateServerUrl(mockUpdateServerPort: number | undefi
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "R2 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "R2 Code");
+    ? "T3 Code (Nightly)"
+    : (desktopPackageJson.productName ?? "T3 Code");
 }
 
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -544,7 +544,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: "com.t3tools.t3code",
     productName: resolveDesktopProductName(version),
-    artifactName: "R2-Code-${version}-${arch}.${ext}",
+    artifactName: "T3-Code-${version}-${arch}.${ext}",
     // All native modules (node-pty, msgpackr-extract, etc.) run inside the
     // bun server subprocess, not in Electron's own Node.js process, so they
     // do not need to be recompiled against Electron's Node ABI.
@@ -759,8 +759,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,
     private: true,
-    description: "R2 Code desktop build",
-    author: "R2 Code",
+    description: "T3 Code desktop build",
+    author: "T3 Tools",
     main: "apps/desktop/dist-electron/main.js",
     build: yield* createBuildConfig(
       options.platform,
@@ -933,7 +933,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a desktop artifact for R2 Code."),
+  Command.withDescription("Build a desktop artifact for T3 Code."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 

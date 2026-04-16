@@ -139,7 +139,7 @@ function ensureWinCodeSignCache(): void {
 
 const skipBuild = process.argv.includes("--skip-build");
 
-console.log("\n=== R2 Code — Windows Build & Install ===\n");
+console.log("\n=== T3 Code — Windows Build & Install ===\n");
 
 // Step 1: pre-extract winCodeSign to avoid the symlink privilege error.
 ensureWinCodeSignCache();
@@ -188,4 +188,4 @@ if (installResult.status !== 0) {
   process.exit(1);
 }
 
-console.log("\n[build-win] Done! R2 Code has been installed.\n");
+console.log("\n[build-win] Done! T3 Code has been installed.\n");
