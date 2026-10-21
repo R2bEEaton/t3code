@@ -1,4 +1,10 @@
-import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import {
+  useLayoutEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "../../lib/utils";
@@ -12,18 +18,25 @@ import {
   resolveThreadDetailsCardLayout,
 } from "./threadDetailsCardLayout";
 import { observeResize } from "../../lib/observeResize";
+import { THREAD_DETAILS_CARD_SURFACE_CLASS } from "./threadDetailsPanelStyles";
+
+// Keep in sync with the aside's gap-2.
+const CARD_STACK_GAP = 8;
 
 export function ThreadDetailsCard({
   threadRef,
   anchor,
   handle,
   onPresentationChange,
+  footer = null,
   children,
 }: {
   threadRef: ScopedThreadRef;
   anchor: RefObject<Element | null>;
   handle: ReturnType<typeof PopoverCreateHandle>;
   onPresentationChange: (presentation: ThreadPanelPresentation) => void;
+  /** A second card stacked under this one. Only the inline layout has room for it. */
+  footer?: ReactNode;
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const canvas = useChatCanvas();
@@ -59,26 +72,47 @@ export function ThreadDetailsCard({
     heights: { full: 0, compact: 0 },
     fullContentHeight: 0,
   });
+  const inlineFooter = placement ? footer : null;
+  const [footerElement, setFooterElement] = useState<HTMLDivElement | null>(null);
+  const [measuredFooterHeight, setMeasuredFooterHeight] = useState(0);
+  const footerSpace = inlineFooter && measuredFooterHeight > 0 ? measuredFooterHeight : 0;
+  // The footer takes its share first: the card's own scroll and density give way, not the footer.
+  const stackedFooterSpace = footerSpace > 0 && inlineOpen ? footerSpace + CARD_STACK_GAP : 0;
   const contentHeights =
     measurements.key === measurementKey ? measurements.heights : { full: 0, compact: 0 };
-  const height = placement?.height ?? Math.max(0, (canvas?.container.height ?? 0) - 52);
+  const availableHeight = placement?.height ?? Math.max(0, (canvas?.container.height ?? 0) - 52);
+  const footerHeightLimit =
+    availableHeight - (inlineOpen ? Math.min(160, availableHeight / 2) + CARD_STACK_GAP : 0);
+  const height = availableHeight - stackedFooterSpace;
   const density = resolveThreadDetailsCardDensity(height, contentHeights);
   const reportDetailsCard = canvas?.reportDetailsCard;
   const cardLeft = preferredPlacement?.x;
   const cardRight = preferredPlacement
     ? preferredPlacement.x + preferredPlacement.width
     : undefined;
-  const cardBottom =
+  const detailsBottom =
     preferredPlacement && measurements.key === measurementKey && measurements.fullContentHeight > 0
-      ? preferredPlacement.y + Math.min(measurements.fullContentHeight, preferredPlacement.height)
+      ? preferredPlacement.y +
+        Math.min(
+          measurements.fullContentHeight,
+          Math.max(0, preferredPlacement.height - stackedFooterSpace),
+        )
       : undefined;
+  const cardBottom = inlineOpen
+    ? detailsBottom === undefined
+      ? undefined
+      : detailsBottom + stackedFooterSpace
+    : preferredPlacement && footerSpace > 0
+      ? preferredPlacement.y + footerSpace
+      : undefined;
+  const cardVisible = inlineOpen || footerSpace > 0;
   useLayoutEffect(() => {
     reportDetailsCard?.(
-      inlineOpen && cardLeft !== undefined && cardRight !== undefined && cardBottom !== undefined
+      cardVisible && cardLeft !== undefined && cardRight !== undefined && cardBottom !== undefined
         ? { left: cardLeft, right: cardRight, bottom: cardBottom }
         : null,
     );
-  }, [reportDetailsCard, inlineOpen, cardLeft, cardRight, cardBottom]);
+  }, [reportDetailsCard, cardVisible, cardLeft, cardRight, cardBottom]);
   useLayoutEffect(() => () => reportDetailsCard?.(null), [reportDetailsCard]);
   useLayoutEffect(() => {
     onPresentationChange(mode);
@@ -120,10 +154,17 @@ export function ThreadDetailsCard({
     measure();
     return observeResize(element, measure);
   }, [contentElement, density, measurementKey]);
+  useLayoutEffect(() => {
+    if (!footerElement) return;
+    const measure = () => setMeasuredFooterHeight(footerElement.offsetHeight);
+    measure();
+    return observeResize(footerElement, measure);
+  }, [footerElement]);
   const card = (
     <div
       className={cn(
-        "dropdown-glass isolate contain-paint grid max-h-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-3xl",
+        THREAD_DETAILS_CARD_SURFACE_CLASS,
+        "grid max-h-full grid-rows-[minmax(0,1fr)]",
         mode === "popover" &&
           "max-h-[min(calc(100dvh-6.5rem),calc(var(--available-height,100dvh)-1rem))]",
       )}
@@ -154,12 +195,12 @@ export function ThreadDetailsCard({
       }}
     >
       {placement ? (
-        inlineOpen ? (
+        inlineOpen || inlineFooter ? (
           <aside
             aria-label="Thread details"
             // Skip the return transition to avoid overlapping the rising preview.
             className={cn(
-              "absolute z-20",
+              "absolute z-20 flex flex-col gap-2",
               topInset > 0 &&
                 "transition-[top] duration-150 ease-out motion-reduce:transition-none",
             )}
@@ -167,12 +208,23 @@ export function ThreadDetailsCard({
               right: placement.right,
               top: placement.y,
               width: placement.width,
-              maxHeight: height,
+              maxHeight: availableHeight,
             }}
             data-density={density}
             data-thread-details-panel="inline"
           >
-            {card}
+            {inlineOpen ? card : null}
+            {inlineFooter ? (
+              <div
+                ref={setFooterElement}
+                className="shrink-0"
+                style={
+                  { "--thread-usage-available-height": `${footerHeightLimit}px` } as CSSProperties
+                }
+              >
+                {inlineFooter}
+              </div>
+            ) : null}
           </aside>
         ) : null
       ) : (
