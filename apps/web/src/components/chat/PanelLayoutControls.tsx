@@ -1,4 +1,4 @@
-import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
+import { GaugeIcon, PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement } from "react";
@@ -23,6 +23,10 @@ export interface PanelLayoutControlsProps {
   rightPanelOpen: boolean;
   rightPanelShortcutLabel: string | null;
   rightPanelUnavailableLabel?: string;
+  /** Omit the toggle callback to hide the usage limits control. */
+  usagePanelOpen?: boolean;
+  usagePanelPopoverHandle?: ReturnType<typeof PopoverCreateHandle>;
+  onToggleUsagePanel?: () => void;
   onToggleTerminal: () => void;
   onToggleThreadPanel: () => void;
   onToggleRightPanel: () => void;
@@ -43,6 +47,9 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   rightPanelOpen,
   rightPanelShortcutLabel,
   rightPanelUnavailableLabel = "Right panel is unavailable",
+  usagePanelOpen = false,
+  usagePanelPopoverHandle,
+  onToggleUsagePanel,
   onToggleTerminal,
   onToggleThreadPanel,
   onToggleRightPanel,
@@ -70,6 +77,17 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       </TooltipPopup>
     </Tooltip>
   );
+  const usagePanelToggle = (
+    <Toggle
+      className="shrink-0 [-webkit-app-region:no-drag]"
+      pressed={usagePanelOpen}
+      aria-label="Toggle usage limits"
+      variant="ghost"
+      size="sm"
+    >
+      <GaugeIcon className="size-4" />
+    </Toggle>
+  );
 
   return (
     <div
@@ -83,6 +101,21 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
             )
           : threadPanelTooltip(threadPanelToggle)
         : null}
+      {showThreadPanelControl && onToggleUsagePanel ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              threadPanelPresentation === "popover" ? (
+                <PopoverTrigger handle={usagePanelPopoverHandle} render={usagePanelToggle} />
+              ) : (
+                usagePanelToggle
+              )
+            }
+            {...(threadPanelPresentation === "popover" ? {} : { onClick: onToggleUsagePanel })}
+          />
+          <TooltipPopup side="bottom">Toggle usage limits</TooltipPopup>
+        </Tooltip>
+      ) : null}
       {showTerminalControl ? (
         <Tooltip>
           <TooltipTrigger render={<span className="flex shrink-0" />}>

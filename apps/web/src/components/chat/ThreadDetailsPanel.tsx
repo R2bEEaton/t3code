@@ -22,6 +22,8 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { ThreadUsageCard } from "./ThreadUsageCard";
+import { useUsagePanelStore } from "../../usagePanelStore";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -69,6 +71,7 @@ export interface ThreadDetailsPanelProps extends Pick<
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+  const usagePanelOpen = useUsagePanelStore((state) => state.open);
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
     props.activeProjectScripts ? props.gitCwd : null,
@@ -106,6 +109,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
       anchor={props.anchor}
       handle={props.handle}
       onPresentationChange={props.onPresentationChange}
+      footer={usagePanelOpen ? <ThreadUsageCard /> : null}
     >
       {(density) => (
         <>

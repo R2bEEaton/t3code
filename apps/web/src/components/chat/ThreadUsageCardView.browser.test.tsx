@@ -1,0 +1,131 @@
+import type { LimitPool, LimitPoolWindow } from "@t3tools/shared/usageLimits";
+import { useState, type CSSProperties } from "react";
+import { expect, it } from "vite-plus/test";
+import "../../index.css";
+
+import { render } from "../../../test/render";
+import { ThreadUsageCardView } from "./ThreadUsageCardView";
+
+const window = (kind: LimitPoolWindow["kind"], remainingPercent: number): LimitPoolWindow => ({
+  id: kind,
+  kind,
+  label: kind === "session" ? "Session" : "Weekly",
+  remainingPercent,
+  usedPercent: 100 - remainingPercent,
+  members: [],
+  columns: [],
+  pace: null,
+  resets: [],
+});
+
+const pools: LimitPool[] = ["codex", "claudeAgent", "cursor", "opencode"].map((driver) => ({
+  driver: driver as LimitPool["driver"],
+  accounts: [],
+  windows: [window("session", 55), window("weekly", 76)],
+}));
+
+function Card({ providers = pools }: { providers?: readonly LimitPool[] }) {
+  const [compact, setCompact] = useState(false);
+  return (
+    <div style={{ width: 280 }}>
+      <ThreadUsageCardView
+        pools={providers}
+        now={0}
+        refreshing={false}
+        onRefresh={() => {}}
+        compact={compact}
+        onToggleCompact={() => setCompact((value) => !value)}
+      />
+    </div>
+  );
+}
+
+it("grows past 320px to fit providers when there is room", async () => {
+  await using screen = await render(<Card />);
+  const card = screen.container.querySelector<HTMLElement>("[data-thread-usage-card]")!;
+  const viewport = card.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')!;
+  expect(card.getBoundingClientRect().height).toBeGreaterThan(320);
+  expect(viewport.scrollHeight).toBeLessThanOrEqual(viewport.clientHeight + 1);
+});
+
+it("scrolls only after reaching the space available beside project actions", async () => {
+  await using screen = await render(
+    <div style={{ "--thread-usage-available-height": "200px" } as CSSProperties}>
+      <Card />
+    </div>,
+  );
+  const card = screen.container.querySelector<HTMLElement>("[data-thread-usage-card]")!;
+  const viewport = card.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')!;
+  expect(card.getBoundingClientRect().height).toBe(200);
+  expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
+  await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
+  expect(card.getBoundingClientRect().height).toBeLessThan(200);
+  expect(viewport.scrollHeight).toBeLessThanOrEqual(viewport.clientHeight + 1);
+});
+
+it("stacks one compact session bar per provider with a weekly marker and restores details", async () => {
+  await using screen = await render(<Card />);
+  const fullHeight = screen.container.getBoundingClientRect().height;
+  await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
+  const rows = [...screen.container.querySelectorAll<HTMLElement>("[data-usage-compact-provider]")];
+  expect(rows).toHaveLength(4);
+  expect(screen.container.innerText).not.toContain("%");
+  expect(screen.container.getBoundingClientRect().height).toBeLessThan(fullHeight);
+  for (let i = 1; i < rows.length; i++) {
+    expect(rows[i]!.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      rows[i - 1]!.getBoundingClientRect().bottom,
+    );
+  }
+  await expect
+    .element(screen.getByRole("meter", { name: "Codex Session remaining", exact: true }))
+    .toHaveAttribute("aria-valuenow", "55");
+  await expect
+    .element(screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true }))
+    .toHaveAttribute("aria-valuenow", "76");
+  const bar = rows[0]!.querySelector<HTMLElement>("[data-usage-session-fill]")!;
+  expect(bar.getBoundingClientRect().width / rows[0]!.getBoundingClientRect().width).toBeCloseTo(
+    0.55,
+    1,
+  );
+  const marker = rows[0]!.querySelector<HTMLElement>("[data-usage-weekly-marker]")!;
+  expect(marker.offsetLeft / rows[0]!.clientWidth).toBeCloseTo(0.76, 1);
+  await screen.getByRole("button", { name: "Show detailed usage limits", exact: true }).click();
+  expect(screen.container.querySelector("[data-usage-compact-provider]")).toBeNull();
+  expect(screen.container.innerText).toContain("55%");
+});
+
+it("shows when each window resets on the compact bar and its hover", async () => {
+  const resetsIn = (minutes: number): LimitPoolWindow["resets"] => [
+    { member: undefined as never, at: minutes * 60_000, restoresPercent: 100 },
+  ];
+  const providers = [
+    {
+      ...pools[0]!,
+      windows: [
+        { ...window("session", 55), resets: resetsIn(3 * 60 + 58) },
+        { ...window("weekly", 76), resets: resetsIn(5 * 24 * 60 + 20 * 60) },
+      ],
+    },
+  ];
+  await using screen = await render(<Card providers={providers} />);
+  await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
+  const countdown = screen.container.querySelector("[data-usage-compact-reset]");
+  expect(countdown?.textContent).toBe("↻ 3h 58m");
+  await screen
+    .getByLabelText("Codex: Session: 55% left · Weekly: 76% left", { exact: true })
+    .hover();
+  await expect.element(screen.getByText("· resets in 3h 58m", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("· resets in 5d 20h", { exact: true })).toBeVisible();
+  expect(document.body.innerText).not.toMatch(/Fill|Caret/);
+});
+
+it("shows a weekly-only allowance as the bar without inventing a session or marker", async () => {
+  await using screen = await render(
+    <Card providers={[{ ...pools[0]!, windows: [window("weekly", 0)] }]} />,
+  );
+  await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
+  await expect
+    .element(screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true }))
+    .toHaveAttribute("aria-valuenow", "0");
+  expect(screen.container.querySelector("[data-usage-weekly-marker]")).toBeNull();
+});
