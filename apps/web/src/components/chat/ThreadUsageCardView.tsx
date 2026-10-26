@@ -1,6 +1,7 @@
 import {
   displayLimitWindows,
   formatDuration,
+  paceRemainingPercent,
   type LimitPool,
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
@@ -21,6 +22,40 @@ function timeUntilReset(window: LimitPoolWindow, now: number): string | null {
   return nextReset ? formatDuration(nextReset.at - now) : null;
 }
 
+function paceMarkStyles(timeLeft: number | null) {
+  if (timeLeft === null) return null;
+  const at = `clamp(3px, ${timeLeft}%, calc(100% - 3px))`;
+  const [left, right] = [`calc(${at} - 3px)`, `calc(${at} + 3px)`];
+  const [near, far] = ["-1px", "calc(100% + 1px)"];
+  return {
+    tick: { left: at },
+    gap: {
+      clipPath: `polygon(${near} ${near}, ${left} ${near}, ${left} ${far}, ${right} ${far}, ${right} ${near}, ${far} ${near}, ${far} ${far}, ${near} ${far})`,
+    },
+  };
+}
+
+function windowTimeLeftPercent(window: LimitPoolWindow, now: number): number | null {
+  for (const member of window.members) {
+    const pace = paceRemainingPercent(member.window, now);
+    if (pace !== null) return pace;
+  }
+  const nextReset = window.resets.find((reset) => reset.at > now);
+  if (nextReset) {
+    const memberDuration = window.members.find((m) => m.window?.windowDurationMins !== undefined)
+      ?.window.windowDurationMins;
+    const durationMins =
+      memberDuration ??
+      (window.kind === "session" ? 300 : window.kind === "weekly" ? 10080 : null);
+    if (durationMins && durationMins > 0) {
+      const lengthMs = durationMins * 60_000;
+      const remainingMs = Math.max(0, Math.min(lengthMs, nextReset.at - now));
+      return Math.round((remainingMs / lengthMs) * 100);
+    }
+  }
+  return null;
+}
+
 function LimitRow({
   window,
   color,
@@ -37,7 +72,7 @@ function LimitRow({
         <span className="min-w-0 truncate text-muted-foreground">{window.label}</span>
         {resetsIn ? (
           <span className="shrink-0 text-2xs text-muted-foreground/70 tabular-nums">
-            ↻ {resetsIn}
+            ⟳ {resetsIn}
           </span>
         ) : null}
         <span className="ms-auto flex shrink-0 items-center gap-1.5 font-medium text-foreground tabular-nums">
@@ -96,12 +131,42 @@ function CompactProviderLimits({ pool, now }: { readonly pool: LimitPool; readon
   const windows = displayLimitWindows(pool);
   const sessions = windows.filter((window) => window.kind === "session");
   const weekly = leastRemaining(windows.filter((window) => window.kind === "weekly"));
-  const primary = leastRemaining(sessions) ?? weekly ?? leastRemaining(windows);
+  const session = leastRemaining(sessions);
+  const fallback = leastRemaining(windows);
+  const primary = session ?? weekly ?? fallback;
   if (!primary) return null;
-  const marker = weekly !== primary ? weekly : undefined;
+
+  const hasBoth = Boolean(session && weekly);
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
-  const summary = `${primary.label}: ${primary.remainingPercent}% left${marker ? ` · ${marker.label}: ${marker.remainingPercent}% left` : ""}`;
-  const primaryResetsIn = timeUntilReset(primary, now);
+  const summary = hasBoth
+    ? `${session!.label}: ${session!.remainingPercent}% left · ${weekly!.label}: ${weekly!.remainingPercent}% left`
+    : `${primary.label}: ${primary.remainingPercent}% left`;
+
+  const isUsedUp =
+    (session && session.remainingPercent === 0) ||
+    (weekly && weekly.remainingPercent === 0) ||
+    (!session && !weekly && fallback && fallback.remainingPercent === 0);
+
+  const usedUpWindow =
+    (session && session.remainingPercent === 0 ? session : null) ??
+    (weekly && weekly.remainingPercent === 0 ? weekly : null) ??
+    (fallback && fallback.remainingPercent === 0 ? fallback : null);
+
+  const usedUpResetTime = isUsedUp && usedUpWindow ? timeUntilReset(usedUpWindow, now) : null;
+
+  const sessionTimeLeft = session ? windowTimeLeftPercent(session, now) : null;
+  const weeklyTimeLeft = weekly ? windowTimeLeftPercent(weekly, now) : null;
+  const primaryTimeLeft = !hasBoth ? windowTimeLeftPercent(primary, now) : null;
+
+  const sessionPace = paceMarkStyles(sessionTimeLeft);
+  const weeklyPace = paceMarkStyles(weeklyTimeLeft);
+  const primaryPace = paceMarkStyles(primaryTimeLeft);
+
+  const sessionResetsIn = session ? timeUntilReset(session, now) : null;
+  const weeklyResetsIn = weekly ? timeUntilReset(weekly, now) : null;
+
+  const color = barColor(pool.driver);
+
   return (
     <div className="px-1.5 pb-2 last:pb-0">
       <Tooltip>
@@ -110,76 +175,144 @@ function CompactProviderLimits({ pool, now }: { readonly pool: LimitPool; readon
             <div
               tabIndex={0}
               aria-label={`${label}: ${summary}`}
-              className="relative h-7 rounded-full bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="relative flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
               data-usage-compact-provider
             />
           }
         >
-          <div
-            role="meter"
-            aria-label={`${label} ${primary.label} remaining`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={primary.remainingPercent}
-            className="absolute inset-0 overflow-hidden rounded-full"
-          >
-            <div
-              className="h-full opacity-35"
-              style={{
-                width: `${primary.remainingPercent}%`,
-                backgroundColor: barColor(pool.driver),
-              }}
-              data-usage-session-fill
-            />
+          <ProviderInstanceIcon
+            driverKind={pool.driver}
+            displayName={label}
+            indicatorBackground="var(--popover)"
+            className="size-4 shrink-0"
+            iconClassName="size-3.5 text-foreground/80"
+          />
+          <div className="relative flex-1 min-w-0" data-usage-compact-pill>
+            <div className="relative flex h-7 flex-col overflow-hidden rounded-full bg-muted">
+              {hasBoth ? (
+                <>
+                  <div
+                    role="meter"
+                    aria-label={`${label} ${session!.label} remaining`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={session!.remainingPercent}
+                    className="relative h-1/2 w-full overflow-hidden border-b border-background/25"
+                  >
+                    <div className="absolute inset-0" style={sessionPace?.gap}>
+                      <div
+                        className="h-full opacity-40"
+                        style={{
+                          width: `${session!.remainingPercent}%`,
+                          backgroundColor: color,
+                        }}
+                        data-usage-session-fill
+                      />
+                    </div>
+                    {sessionPace ? (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+                        style={sessionPace.tick}
+                        data-usage-session-pace
+                      />
+                    ) : null}
+                  </div>
+                  <div
+                    role="meter"
+                    aria-label={`${label} ${weekly!.label} remaining`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={weekly!.remainingPercent}
+                    className="relative h-1/2 w-full overflow-hidden"
+                  >
+                    <div className="absolute inset-0" style={weeklyPace?.gap}>
+                      <div
+                        className="h-full opacity-40"
+                        style={{
+                          width: `${weekly!.remainingPercent}%`,
+                          backgroundColor: color,
+                        }}
+                        data-usage-weekly-fill
+                      />
+                    </div>
+                    {weeklyPace ? (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+                        style={weeklyPace.tick}
+                        data-usage-weekly-pace
+                      />
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <div
+                  role="meter"
+                  aria-label={`${label} ${primary.label} remaining`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={primary.remainingPercent}
+                  className="relative h-full w-full overflow-hidden"
+                >
+                  <div className="absolute inset-0" style={primaryPace?.gap}>
+                    <div
+                      className="h-full opacity-40"
+                      style={{
+                        width: `${primary.remainingPercent}%`,
+                        backgroundColor: color,
+                      }}
+                      data-usage-session-fill={primary.kind === "session" ? "" : undefined}
+                      data-usage-weekly-fill={primary.kind === "weekly" ? "" : undefined}
+                    />
+                  </div>
+                  {primaryPace ? (
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+                      style={primaryPace.tick}
+                      data-usage-session-pace={primary.kind === "session" ? "" : undefined}
+                      data-usage-weekly-pace={primary.kind === "weekly" ? "" : undefined}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="pointer-events-none relative flex h-full min-w-0 items-center gap-2 px-2.5 text-xs font-medium">
-            <ProviderInstanceIcon
-              driverKind={pool.driver}
-              displayName={label}
-              indicatorBackground="var(--popover)"
-              className="size-3.5 shrink-0"
-              iconClassName="size-3.5 text-foreground/80"
-            />
-            <span className="truncate">{label}</span>
-            {primaryResetsIn ? (
-              <span
-                className="ms-auto shrink-0 text-2xs font-normal text-muted-foreground tabular-nums"
-                data-usage-compact-reset
-              >
-                ↻ {primaryResetsIn}
-              </span>
-            ) : null}
-          </div>
-          {marker ? (
+          {usedUpResetTime ? (
             <span
-              role="meter"
-              aria-label={`${label} ${marker.label} remaining`}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={marker.remainingPercent}
-              className="pointer-events-none absolute top-0 -translate-x-1/2 text-foreground"
-              style={{ left: `clamp(5px, ${marker.remainingPercent}%, calc(100% - 5px))` }}
-              data-usage-weekly-marker
+              className="shrink-0 text-2xs font-normal text-muted-foreground tabular-nums"
+              data-usage-compact-reset
             >
-              <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor" aria-hidden>
-                <path d="M0 0H10L5 6Z" />
-              </svg>
+              ⟳ {usedUpResetTime}
             </span>
           ) : null}
         </TooltipTrigger>
         <TooltipPopup side="top">
-          {[primary, marker].map((window) => {
-            if (!window) return null;
-            const resetsIn = timeUntilReset(window, now);
-            return (
-              <span key={window.id} className="block">
-                {window.label}: {window.remainingPercent}% left
-                {resetsIn ? (
-                  <span className="text-muted-foreground"> · resets in {resetsIn}</span>
-                ) : null}
-              </span>
-            );
-          })}
+          {session ? (
+            <span className="block">
+              {session.label}: {session.remainingPercent}% left
+              {sessionResetsIn ? (
+                <span className="text-muted-foreground"> · resets in {sessionResetsIn}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {weekly ? (
+            <span className="block">
+              {weekly.label}: {weekly.remainingPercent}% left
+              {weeklyResetsIn ? (
+                <span className="text-muted-foreground"> · resets in {weeklyResetsIn}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {!session && !weekly && fallback ? (
+            <span className="block">
+              {fallback.label}: {fallback.remainingPercent}% left
+              {timeUntilReset(fallback, now) ? (
+                <span className="text-muted-foreground"> · resets in {timeUntilReset(fallback, now)}</span>
+              ) : null}
+            </span>
+          ) : null}
         </TooltipPopup>
       </Tooltip>
     </div>

@@ -1,17 +1,15 @@
 import type { LimitPool, LimitPoolWindow } from "@t3tools/shared/usageLimits";
-import { useState, type CSSProperties } from "react";
-import { expect, it } from "vite-plus/test";
+import { type CSSProperties, useState } from "react";
+import { describe, expect, it } from "vitest";
 import "../../index.css";
-
 import { render } from "../../../test/render";
 import { ThreadUsageCardView } from "./ThreadUsageCardView";
 
 const window = (kind: LimitPoolWindow["kind"], remainingPercent: number): LimitPoolWindow => ({
-  id: kind,
+  id: `${kind}-1`,
   kind,
   label: kind === "session" ? "Session" : "Weekly",
   remainingPercent,
-  usedPercent: 100 - remainingPercent,
   members: [],
   columns: [],
   pace: null,
@@ -63,12 +61,13 @@ it("scrolls only after reaching the space available beside project actions", asy
   expect(viewport.scrollHeight).toBeLessThanOrEqual(viewport.clientHeight + 1);
 });
 
-it("stacks one compact session bar per provider with a weekly marker and restores details", async () => {
+it("stacks compact split session and weekly bars per provider and restores details", async () => {
   await using screen = await render(<Card />);
   const fullHeight = screen.container.getBoundingClientRect().height;
   await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
   const rows = [...screen.container.querySelectorAll<HTMLElement>("[data-usage-compact-provider]")];
   expect(rows).toHaveLength(4);
+  expect(screen.container.innerText).not.toContain("Codex");
   expect(screen.container.innerText).not.toContain("%");
   expect(screen.container.getBoundingClientRect().height).toBeLessThan(fullHeight);
   for (let i = 1; i < rows.length; i++) {
@@ -82,16 +81,23 @@ it("stacks one compact session bar per provider with a weekly marker and restore
   await expect
     .element(screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true }))
     .toHaveAttribute("aria-valuenow", "76");
-  const bar = rows[0]!.querySelector<HTMLElement>("[data-usage-session-fill]")!;
-  expect(bar.getBoundingClientRect().width / rows[0]!.getBoundingClientRect().width).toBeCloseTo(
+  const sessionFill = rows[0]!.querySelector<HTMLElement>("[data-usage-session-fill]")!;
+  const weeklyFill = rows[0]!.querySelector<HTMLElement>("[data-usage-weekly-fill]")!;
+  const pill = rows[0]!.querySelector<HTMLElement>("[data-usage-compact-pill]")!;
+  expect(sessionFill.getBoundingClientRect().width / pill.getBoundingClientRect().width).toBeCloseTo(
     0.55,
     1,
   );
-  const marker = rows[0]!.querySelector<HTMLElement>("[data-usage-weekly-marker]")!;
-  expect(marker.offsetLeft / rows[0]!.clientWidth).toBeCloseTo(0.76, 1);
+  expect(weeklyFill.getBoundingClientRect().width / pill.getBoundingClientRect().width).toBeCloseTo(
+    0.76,
+    1,
+  );
+  expect(rows[0]!.querySelector("[data-usage-weekly-marker]")).toBeNull();
+  expect(rows[0]!.querySelector("[data-usage-compact-reset]")).toBeNull();
   await screen.getByRole("button", { name: "Show detailed usage limits", exact: true }).click();
   expect(screen.container.querySelector("[data-usage-compact-provider]")).toBeNull();
   expect(screen.container.innerText).toContain("55%");
+  expect(screen.container.innerText).toContain("Codex");
 });
 
 it("shows when each window resets on the compact bar and its hover", async () => {
@@ -102,7 +108,7 @@ it("shows when each window resets on the compact bar and its hover", async () =>
     {
       ...pools[0]!,
       windows: [
-        { ...window("session", 55), resets: resetsIn(3 * 60 + 58) },
+        { ...window("session", 0), resets: resetsIn(3 * 60 + 58) },
         { ...window("weekly", 76), resets: resetsIn(5 * 24 * 60 + 20 * 60) },
       ],
     },
@@ -110,9 +116,13 @@ it("shows when each window resets on the compact bar and its hover", async () =>
   await using screen = await render(<Card providers={providers} />);
   await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
   const countdown = screen.container.querySelector("[data-usage-compact-reset]");
-  expect(countdown?.textContent).toBe("↻ 3h 58m");
+  expect(countdown?.textContent).toBe("⟳ 3h 58m");
+  const sessionPace = screen.container.querySelector("[data-usage-session-pace]");
+  expect(sessionPace).not.toBeNull();
+  const weeklyPace = screen.container.querySelector("[data-usage-weekly-pace]");
+  expect(weeklyPace).not.toBeNull();
   await screen
-    .getByLabelText("Codex: Session: 55% left · Weekly: 76% left", { exact: true })
+    .getByLabelText("Codex: Session: 0% left · Weekly: 76% left", { exact: true })
     .hover();
   await expect.element(screen.getByText("· resets in 3h 58m", { exact: true })).toBeVisible();
   await expect.element(screen.getByText("· resets in 5d 20h", { exact: true })).toBeVisible();
