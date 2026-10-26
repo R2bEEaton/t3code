@@ -75,19 +75,18 @@ it("stacks compact split session and weekly bars per provider and restores detai
       rows[i - 1]!.getBoundingClientRect().bottom,
     );
   }
-  await expect
-    .element(screen.getByRole("meter", { name: "Codex Session remaining", exact: true }))
-    .toHaveAttribute("aria-valuenow", "55");
-  await expect
-    .element(screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true }))
-    .toHaveAttribute("aria-valuenow", "76");
+  const sessionMeter = screen.getByRole("meter", { name: "Codex Session remaining", exact: true });
+  const weeklyMeter = screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true });
+  await expect.element(sessionMeter).toHaveAttribute("aria-valuenow", "55");
+  await expect.element(weeklyMeter).toHaveAttribute("aria-valuenow", "76");
+  await expect.element(sessionMeter).toHaveClass("rounded-full");
+  await expect.element(weeklyMeter).toHaveClass("rounded-full");
   const sessionFill = rows[0]!.querySelector<HTMLElement>("[data-usage-session-fill]")!;
   const weeklyFill = rows[0]!.querySelector<HTMLElement>("[data-usage-weekly-fill]")!;
   const pill = rows[0]!.querySelector<HTMLElement>("[data-usage-compact-pill]")!;
-  expect(sessionFill.getBoundingClientRect().width / pill.getBoundingClientRect().width).toBeCloseTo(
-    0.55,
-    1,
-  );
+  expect(
+    sessionFill.getBoundingClientRect().width / pill.getBoundingClientRect().width,
+  ).toBeCloseTo(0.55, 1);
   expect(weeklyFill.getBoundingClientRect().width / pill.getBoundingClientRect().width).toBeCloseTo(
     0.76,
     1,
@@ -115,8 +114,12 @@ it("shows when each window resets on the compact bar and its hover", async () =>
   ];
   await using screen = await render(<Card providers={providers} />);
   await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
-  const countdown = screen.container.querySelector("[data-usage-compact-reset]");
+  const sessionMeter = screen.getByRole("meter", { name: "Codex Session remaining", exact: true });
+  const countdown = screen.container.querySelector<HTMLElement>("[data-usage-compact-reset]");
   expect(countdown?.textContent).toBe("⟳ 3h 58m");
+  expect(countdown?.className).toContain("text-white");
+  const meters = screen.container.querySelectorAll<HTMLElement>('[role="meter"]');
+  expect(meters[0]!.querySelector("[data-usage-compact-reset]")).not.toBeNull();
   const sessionPace = screen.container.querySelector("[data-usage-session-pace]");
   expect(sessionPace).not.toBeNull();
   const weeklyPace = screen.container.querySelector("[data-usage-weekly-pace]");
@@ -134,8 +137,8 @@ it("shows a weekly-only allowance as the bar without inventing a session or mark
     <Card providers={[{ ...pools[0]!, windows: [window("weekly", 0)] }]} />,
   );
   await screen.getByRole("button", { name: "Show compact usage limits", exact: true }).click();
-  await expect
-    .element(screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true }))
-    .toHaveAttribute("aria-valuenow", "0");
+  const weeklyMeter = screen.getByRole("meter", { name: "Codex Weekly remaining", exact: true });
+  await expect.element(weeklyMeter).toHaveAttribute("aria-valuenow", "0");
+  await expect.element(weeklyMeter).toHaveClass("rounded-full");
   expect(screen.container.querySelector("[data-usage-weekly-marker]")).toBeNull();
 });

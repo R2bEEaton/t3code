@@ -45,8 +45,7 @@ function windowTimeLeftPercent(window: LimitPoolWindow, now: number): number | n
     const memberDuration = window.members.find((m) => m.window?.windowDurationMins !== undefined)
       ?.window.windowDurationMins;
     const durationMins =
-      memberDuration ??
-      (window.kind === "session" ? 300 : window.kind === "weekly" ? 10080 : null);
+      memberDuration ?? (window.kind === "session" ? 300 : window.kind === "weekly" ? 10080 : null);
     if (durationMins && durationMins > 0) {
       const lengthMs = durationMins * 60_000;
       const remainingMs = Math.max(0, Math.min(lengthMs, nextReset.at - now));
@@ -65,44 +64,58 @@ function LimitRow({
   readonly color: string;
   readonly now: number;
 }) {
+  const timeLeft = windowTimeLeftPercent(window, now);
+  const pace = paceMarkStyles(timeLeft);
   const resetsIn = timeUntilReset(window, now);
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-2 text-xs">
-        <span className="min-w-0 truncate text-muted-foreground">{window.label}</span>
-        {resetsIn ? (
-          <span className="shrink-0 text-2xs text-muted-foreground/70 tabular-nums">
-            ⟳ {resetsIn}
-          </span>
-        ) : null}
-        <span className="ms-auto flex shrink-0 items-center gap-1.5 font-medium text-foreground tabular-nums">
+    <div className="flex flex-col gap-1 py-1.5 first:pt-0 last:pb-0">
+      <div className="flex items-baseline justify-between text-2xs">
+        <span className="font-medium text-foreground">{window.label}</span>
+        <div className="flex items-center gap-1.5 tabular-nums">
+          <span className="font-semibold text-foreground">{window.remainingPercent}%</span>
           {window.pace ? <PaceIcon pace={window.pace} /> : null}
-          {window.remainingPercent}%
-        </span>
+          {resetsIn ? (
+            <span className="shrink-0 text-muted-foreground/70 text-2xs">
+              · resets in {resetsIn}
+            </span>
+          ) : null}
+        </div>
       </div>
       <div
         role="meter"
-        aria-label={`${window.label}: ${window.remainingPercent}% left`}
+        aria-label={`${window.label} remaining`}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={window.remainingPercent}
-        className="h-1.5 overflow-hidden rounded-full bg-muted"
+        className="relative h-2 w-full overflow-hidden rounded-full bg-muted"
       >
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${window.remainingPercent}%`, backgroundColor: color }}
-        />
+        <div className="absolute inset-0" style={pace?.gap}>
+          <div
+            className="h-full opacity-40 transition-all"
+            style={{
+              width: `${window.remainingPercent}%`,
+              backgroundColor: color,
+            }}
+          />
+        </div>
+        {pace ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+            style={pace.tick}
+          />
+        ) : null}
       </div>
     </div>
   );
 }
 
 function ProviderLimits({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
-  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const color = barColor(pool.driver);
+  const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   return (
-    <div className="flex flex-col gap-2 px-1.5 pb-2 last:pb-0">
-      <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-foreground/80">
+    <div className="flex flex-col gap-1 border-b border-border/40 py-2.5 first:pt-1 last:border-b-0 last:pb-1">
+      <div className="flex items-center gap-2 pb-0.5">
         <ProviderInstanceIcon
           driverKind={pool.driver}
           displayName={label}
@@ -110,7 +123,7 @@ function ProviderLimits({ pool, now }: { readonly pool: LimitPool; readonly now:
           className="size-4"
           iconClassName="size-3.5 text-foreground/80"
         />
-        <span className="truncate">{label}</span>
+        <span className="text-xs font-medium text-foreground">{label}</span>
       </div>
       {displayLimitWindows(pool).map((window) => (
         <LimitRow key={`${window.kind}:${window.id}`} window={window} color={color} now={now} />
@@ -124,6 +137,63 @@ function leastRemaining(windows: readonly LimitPoolWindow[]) {
     (least, window) =>
       !least || window.remainingPercent < least.remainingPercent ? window : least,
     undefined,
+  );
+}
+
+function CompactBar({
+  window,
+  color,
+  now,
+  pace,
+  label,
+}: {
+  readonly window: LimitPoolWindow;
+  readonly color: string;
+  readonly now: number;
+  readonly pace: ReturnType<typeof paceMarkStyles>;
+  readonly label: string;
+}) {
+  const isDepleted = window.remainingPercent === 0;
+  const resetTime = isDepleted ? timeUntilReset(window, now) : null;
+
+  return (
+    <div
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={window.remainingPercent}
+      className="relative h-3 w-full overflow-hidden rounded-full bg-muted"
+    >
+      <div className="absolute inset-0" style={pace?.gap}>
+        <div
+          className="h-full opacity-40 transition-all"
+          style={{
+            width: `${window.remainingPercent}%`,
+            backgroundColor: color,
+          }}
+          data-usage-session-fill={window.kind === "session" ? "" : undefined}
+          data-usage-weekly-fill={window.kind === "weekly" ? "" : undefined}
+        />
+      </div>
+      {pace ? (
+        <span
+          aria-hidden
+          className="absolute inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+          style={pace.tick}
+          data-usage-session-pace={window.kind === "session" ? "" : undefined}
+          data-usage-weekly-pace={window.kind === "weekly" ? "" : undefined}
+        />
+      ) : null}
+      {resetTime ? (
+        <span
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-1 font-sans text-3xs font-semibold leading-none tabular-nums text-white select-none drop-shadow-sm"
+          data-usage-compact-reset
+        >
+          ⟳ {resetTime}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -142,18 +212,6 @@ function CompactProviderLimits({ pool, now }: { readonly pool: LimitPool; readon
     ? `${session!.label}: ${session!.remainingPercent}% left · ${weekly!.label}: ${weekly!.remainingPercent}% left`
     : `${primary.label}: ${primary.remainingPercent}% left`;
 
-  const isUsedUp =
-    (session && session.remainingPercent === 0) ||
-    (weekly && weekly.remainingPercent === 0) ||
-    (!session && !weekly && fallback && fallback.remainingPercent === 0);
-
-  const usedUpWindow =
-    (session && session.remainingPercent === 0 ? session : null) ??
-    (weekly && weekly.remainingPercent === 0 ? weekly : null) ??
-    (fallback && fallback.remainingPercent === 0 ? fallback : null);
-
-  const usedUpResetTime = isUsedUp && usedUpWindow ? timeUntilReset(usedUpWindow, now) : null;
-
   const sessionTimeLeft = session ? windowTimeLeftPercent(session, now) : null;
   const weeklyTimeLeft = weekly ? windowTimeLeftPercent(weekly, now) : null;
   const primaryTimeLeft = !hasBoth ? windowTimeLeftPercent(primary, now) : null;
@@ -168,14 +226,14 @@ function CompactProviderLimits({ pool, now }: { readonly pool: LimitPool; readon
   const color = barColor(pool.driver);
 
   return (
-    <div className="px-1.5 pb-2 last:pb-0">
+    <div className="px-1.5 pb-1.5 last:pb-0">
       <Tooltip>
         <TooltipTrigger
           render={
             <div
               tabIndex={0}
               aria-label={`${label}: ${summary}`}
-              className="relative flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="relative flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
               data-usage-compact-provider
             />
           }
@@ -187,106 +245,37 @@ function CompactProviderLimits({ pool, now }: { readonly pool: LimitPool; readon
             className="size-4 shrink-0"
             iconClassName="size-3.5 text-foreground/80"
           />
-          <div className="relative flex-1 min-w-0" data-usage-compact-pill>
-            <div className="relative flex h-7 flex-col overflow-hidden rounded-full bg-muted">
-              {hasBoth ? (
-                <>
-                  <div
-                    role="meter"
-                    aria-label={`${label} ${session!.label} remaining`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={session!.remainingPercent}
-                    className="relative h-1/2 w-full overflow-hidden border-b border-background/25"
-                  >
-                    <div className="absolute inset-0" style={sessionPace?.gap}>
-                      <div
-                        className="h-full opacity-40"
-                        style={{
-                          width: `${session!.remainingPercent}%`,
-                          backgroundColor: color,
-                        }}
-                        data-usage-session-fill
-                      />
-                    </div>
-                    {sessionPace ? (
-                      <span
-                        aria-hidden
-                        className="absolute inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
-                        style={sessionPace.tick}
-                        data-usage-session-pace
-                      />
-                    ) : null}
-                  </div>
-                  <div
-                    role="meter"
-                    aria-label={`${label} ${weekly!.label} remaining`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={weekly!.remainingPercent}
-                    className="relative h-1/2 w-full overflow-hidden"
-                  >
-                    <div className="absolute inset-0" style={weeklyPace?.gap}>
-                      <div
-                        className="h-full opacity-40"
-                        style={{
-                          width: `${weekly!.remainingPercent}%`,
-                          backgroundColor: color,
-                        }}
-                        data-usage-weekly-fill
-                      />
-                    </div>
-                    {weeklyPace ? (
-                      <span
-                        aria-hidden
-                        className="absolute inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
-                        style={weeklyPace.tick}
-                        data-usage-weekly-pace
-                      />
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <div
-                  role="meter"
-                  aria-label={`${label} ${primary.label} remaining`}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={primary.remainingPercent}
-                  className="relative h-full w-full overflow-hidden"
-                >
-                  <div className="absolute inset-0" style={primaryPace?.gap}>
-                    <div
-                      className="h-full opacity-40"
-                      style={{
-                        width: `${primary.remainingPercent}%`,
-                        backgroundColor: color,
-                      }}
-                      data-usage-session-fill={primary.kind === "session" ? "" : undefined}
-                      data-usage-weekly-fill={primary.kind === "weekly" ? "" : undefined}
-                    />
-                  </div>
-                  {primaryPace ? (
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
-                      style={primaryPace.tick}
-                      data-usage-session-pace={primary.kind === "session" ? "" : undefined}
-                      data-usage-weekly-pace={primary.kind === "weekly" ? "" : undefined}
-                    />
-                  ) : null}
-                </div>
-              )}
-            </div>
+          <div
+            className="relative flex flex-1 min-w-0 flex-col gap-1 justify-center"
+            data-usage-compact-pill
+          >
+            {hasBoth ? (
+              <>
+                <CompactBar
+                  window={session!}
+                  color={color}
+                  now={now}
+                  pace={sessionPace}
+                  label={`${label} ${session!.label} remaining`}
+                />
+                <CompactBar
+                  window={weekly!}
+                  color={color}
+                  now={now}
+                  pace={weeklyPace}
+                  label={`${label} ${weekly!.label} remaining`}
+                />
+              </>
+            ) : (
+              <CompactBar
+                window={primary}
+                color={color}
+                now={now}
+                pace={primaryPace}
+                label={`${label} ${primary.label} remaining`}
+              />
+            )}
           </div>
-          {usedUpResetTime ? (
-            <span
-              className="shrink-0 text-2xs font-normal text-muted-foreground tabular-nums"
-              data-usage-compact-reset
-            >
-              ⟳ {usedUpResetTime}
-            </span>
-          ) : null}
         </TooltipTrigger>
         <TooltipPopup side="top">
           {session ? (
@@ -309,7 +298,10 @@ function CompactProviderLimits({ pool, now }: { readonly pool: LimitPool; readon
             <span className="block">
               {fallback.label}: {fallback.remainingPercent}% left
               {timeUntilReset(fallback, now) ? (
-                <span className="text-muted-foreground"> · resets in {timeUntilReset(fallback, now)}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · resets in {timeUntilReset(fallback, now)}
+                </span>
               ) : null}
             </span>
           ) : null}
